@@ -18,23 +18,48 @@ This package provides a Pythonic interface to the official [Thermo RawFileReader
 ### Requirements
 
 - Python 3.12+
-- Mono runtime (Linux/macOS) or .NET Runtime (Windows)
-  - On Ubuntu/Debian: `sudo apt-get install mono-runtime`
-  - On macOS with Homebrew: `brew install mono-mdk`
-  - On Windows: .NET 6+ runtime is typically included with the package
+- UV package manager ([install instructions](https://docs.astral.sh/uv/getting-started/installation/))
+- .NET runtime:
+  - **Linux/macOS**: Mono runtime OR .NET 8 SDK/Runtime
+    - Mono: `sudo apt-get install mono-runtime` (Ubuntu/Debian)
+    - .NET 8: Download from [Microsoft](https://dotnet.microsoft.com/download)
+  - **Windows**: .NET 8 Runtime
 
-### Install from source
+### Quick Install (Users)
+
+```bash
+pip install thermo-raw-file-reader
+```
+
+### Developer Installation
 
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/epyraw.git
 cd epyraw
 
-# Create virtual environment and install
+# Create virtual environment with UV
 uv venv
+
+# Activate the virtual environment
+# Linux/macOS:
 source .venv/bin/activate
+# Windows:
+# .venv\Scripts\activate
+
+# Install in editable mode with development dependencies
 uv pip install -e ".[dev]"
+
+# Verify installation
+pytest
 ```
+
+### Development Dependencies
+
+The `[dev]` extra includes:
+- `pytest>=7.0.0` - Testing framework
+- `pytest-cov>=4.0.0` - Test coverage reporting
+- `mypy>=1.0.0` - Static type checking
 
 ## Quick Start
 
@@ -211,17 +236,54 @@ Run examples:
 python examples/basic_usage.py path/to/file.raw
 ```
 
-## Testing
+## Development
+
+### Running Tests
 
 ```bash
 # Run all tests
 pytest
 
-# Run with coverage
-pytest --cov=thermo_raw_file_reader
+# Run with verbose output
+pytest -v
+
+# Run with coverage report
+pytest --cov=thermo_raw_file_reader --cov-report=html
 
 # Run specific test file
 pytest tests/test_models.py -v
+
+# Run specific test
+pytest tests/test_raw_file.py::TestSpectrumMethods::test_get_spectrum_centroid -v
+```
+
+### Type Checking
+
+```bash
+# Run mypy for static type checking
+mypy src/thermo_raw_file_reader
+```
+
+### Project Structure
+
+```
+epyraw/
+├── pyproject.toml              # UV build configuration
+├── README.md                   # This file
+├── src/thermo_raw_file_reader/
+│   ├── __init__.py             # Public API exports
+│   ├── enums.py                # Enum types (Device, TraceType, etc.)
+│   ├── exceptions.py           # Custom exceptions
+│   ├── models.py               # Data models (Spectrum, Chromatogram, etc.)
+│   ├── raw_file.py             # Main RawFile class
+│   └── runtimes/net8old/       # Bundled .NET DLL assemblies
+├── tests/
+│   ├── conftest.py             # Pytest fixtures
+│   ├── test_models.py          # Unit tests for data models
+│   └── test_raw_file.py        # Integration tests
+└── examples/
+    ├── basic_usage.py          # Basic usage demonstration
+    └── extract_spectra.py      # Extract all spectra example
 ```
 
 ## Limitations
