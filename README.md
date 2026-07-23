@@ -1,4 +1,4 @@
-# thermo-raw-file-reader
+# epyraw
 
 Python wrapper for Thermo Fisher Scientific RawFileReader library, enabling reading of `.raw` mass spectrometry files in Python on Windows, Linux, and MacOS.
 
@@ -28,8 +28,35 @@ This package provides a Pythonic interface to the official [Thermo RawFileReader
 ### Quick Install (Users)
 
 ```bash
-pip install thermo-raw-file-reader
+pip install epyraw
 ```
+
+### Runtime DLL Installation
+
+After installing the package, you need to download the Thermo RawFileReader runtime DLLs:
+
+```bash
+# Download runtime DLLs to default location (~/.epyraw/runtimes/net8old/)
+epyraw download
+
+# Or specify a custom location
+epyraw download --path /custom/path/to/runtimes
+```
+
+Alternatively, you can set the `EPYRAW_RUNTIME_PATH` environment variable:
+
+```bash
+export EPYRAW_RUNTIME_PATH=/path/to/runtimes
+```
+
+The DLLs will be automatically downloaded when you first use the package if they are not found.
+
+### CLI Commands
+
+- `epyraw download`: Download runtime DLLs
+  - `--path, -p`: Custom installation path
+  - `--force, -f`: Re-download even if files exist
+- `epyraw check`: Check if runtime DLLs are installed
 
 ### Developer Installation
 
@@ -64,7 +91,7 @@ The `[dev]` extra includes:
 ## Quick Start
 
 ```python
-from thermo_raw_file_reader import RawFile, Device
+from epyraw import RawFile, Device
 
 # Open a RAW file using context manager
 with RawFile("data.raw") as rf:
@@ -205,7 +232,7 @@ Common enum types for filtering and selection:
 By default, the package attempts to use Mono runtime on Linux/macOS. You can explicitly configure the runtime:
 
 ```python
-from thermo_raw_file_reader import set_runtime, RawFile
+from epyraw import set_runtime, RawFile
 
 # Use Mono runtime (default on Linux/macOS)
 set_runtime("mono")
@@ -248,7 +275,7 @@ pytest
 pytest -v
 
 # Run with coverage report
-pytest --cov=thermo_raw_file_reader --cov-report=html
+pytest --cov=epyraw --cov-report=html
 
 # Run specific test file
 pytest tests/test_models.py -v
@@ -261,7 +288,7 @@ pytest tests/test_raw_file.py::TestSpectrumMethods::test_get_spectrum_centroid -
 
 ```bash
 # Run mypy for static type checking
-mypy src/thermo_raw_file_reader
+mypy src/epyraw
 ```
 
 ### Project Structure
@@ -270,13 +297,14 @@ mypy src/thermo_raw_file_reader
 epyraw/
 ├── pyproject.toml              # UV build configuration
 ├── README.md                   # This file
-├── src/thermo_raw_file_reader/
+├── src/epyraw/
 │   ├── __init__.py             # Public API exports
 │   ├── enums.py                # Enum types (Device, TraceType, etc.)
 │   ├── exceptions.py           # Custom exceptions
 │   ├── models.py               # Data models (Spectrum, Chromatogram, etc.)
 │   ├── raw_file.py             # Main RawFile class
-│   └── runtimes/net8old/       # Bundled .NET DLL assemblies
+│   ├── download.py             # Runtime DLL download module
+│   └── cli.py                  # CLI entry point
 ├── tests/
 │   ├── conftest.py             # Pytest fixtures
 │   ├── test_models.py          # Unit tests for data models
