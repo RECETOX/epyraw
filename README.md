@@ -62,7 +62,7 @@ The DLLs will be automatically downloaded when you first use the package if they
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/epyraw.git
+git clone https://github.com/RECETOX/epyraw.git
 cd epyraw
 
 # Create virtual environment with UV
