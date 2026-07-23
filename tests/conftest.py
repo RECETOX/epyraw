@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from thermo_raw_file_reader import Device, RawFile
+
 # Path to the test data file
 TEST_DATA_DIR = Path(__file__).parent / "testdata"
 SAMPLE_RAW_FILE = TEST_DATA_DIR / "sample.raw"
@@ -31,8 +33,6 @@ def raw_file(sample_raw_file):
     Opens the sample RAW file and selects the MS instrument.
     Uses context manager for proper cleanup.
     """
-    from thermo_raw_file_reader import Device, RawFile
-
     with RawFile(str(sample_raw_file)) as rf:
         rf.select_instrument(Device.MS, 1)
         yield rf

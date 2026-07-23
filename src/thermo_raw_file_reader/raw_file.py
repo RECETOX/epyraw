@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+import numpy as np
 
 from .enums import Device, ToleranceUnits, TraceType
 from .exceptions import (AssemblyLoadError, InitializationError,
@@ -14,9 +16,6 @@ from .exceptions import (AssemblyLoadError, InitializationError,
 from .models import (Chromatogram, FileHeader, InclusionListItem,
                      InstrumentData, RunHeader, SampleInformation, ScanFilter,
                      Spectrum, StatusLogField)
-
-if TYPE_CHECKING:
-    import numpy as np
 
 
 # Module-level state for .NET initialization
@@ -585,14 +584,10 @@ class RawFile:
 
         # Handle different .NET array types
         if net_array is None:
-            import numpy as np
-
             return np.array([], dtype=np.float64)
 
         # Use numpy's frombuffer or direct conversion for .NET arrays
         if isinstance(net_array, System.Array):
-            import numpy as np
-
             # For .NET 8, use a list comprehension approach
             # which works more reliably across versions
             return np.array(
@@ -600,8 +595,6 @@ class RawFile:
             )
 
         # Fallback: try direct conversion
-        import numpy as np
-
         return np.array(net_array, dtype=np.float64)
 
     def get_chromatogram(
@@ -630,8 +623,6 @@ class RawFile:
             end_scan = self.run_header.last_spectrum
 
         try:
-            import numpy as np
-
             # Create chromatogram settings using .NET TraceType enum
             # pythonnet 3.0+ requires explicit enum conversion
             net_trace_type = _net_trace_type_class(int(trace_type))

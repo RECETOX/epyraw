@@ -2,7 +2,8 @@
 
 import pytest
 
-from thermo_raw_file_reader import Device, RawFile, RawFileNotFoundError
+from thermo_raw_file_reader import (Device, InvalidScanNumberError, RawFile,
+                                    RawFileNotFoundError, TraceType)
 
 
 class TestRawFileInit:
@@ -158,16 +159,12 @@ class TestSpectrumMethods:
 
     def test_invalid_scan_number_high(self, raw_file):
         """Test that InvalidScanNumberError is raised for scan too high."""
-        from thermo_raw_file_reader import InvalidScanNumberError
-
         run_header = raw_file.run_header
         with pytest.raises(InvalidScanNumberError):
             raw_file.get_spectrum(run_header.last_spectrum + 1000)
 
     def test_invalid_scan_number_low(self, raw_file):
         """Test that InvalidScanNumberError is raised for scan too low."""
-        from thermo_raw_file_reader import InvalidScanNumberError
-
         run_header = raw_file.run_header
         with pytest.raises(InvalidScanNumberError):
             raw_file.get_spectrum(run_header.first_spectrum - 100)
@@ -185,8 +182,6 @@ class TestChromatogramMethods:
 
     def test_get_chromatogram_basepeak(self, raw_file):
         """Test getting base peak chromatogram."""
-        from thermo_raw_file_reader import TraceType
-
         chrom = raw_file.get_chromatogram(TraceType.BasePeak)
 
         assert chrom.trace_type == int(TraceType.BasePeak)
@@ -194,8 +189,6 @@ class TestChromatogramMethods:
 
     def test_get_chromatogram_tic(self, raw_file):
         """Test getting TIC chromatogram."""
-        from thermo_raw_file_reader import TraceType
-
         chrom = raw_file.get_chromatogram(TraceType.TIC)
 
         assert chrom.trace_type == int(TraceType.TIC)
@@ -203,8 +196,6 @@ class TestChromatogramMethods:
 
     def test_chromatogram_time_range(self, raw_file):
         """Test chromatogram time range matches run header."""
-        from thermo_raw_file_reader import TraceType
-
         chrom = raw_file.get_chromatogram(TraceType.BasePeak)
         run_header = raw_file.run_header
 
@@ -213,8 +204,6 @@ class TestChromatogramMethods:
 
     def test_chromatogram_to_pandas(self, raw_file):
         """Test converting chromatogram to pandas DataFrame."""
-        from thermo_raw_file_reader import TraceType
-
         chrom = raw_file.get_chromatogram(TraceType.BasePeak)
 
         df = chrom.to_pandas()
@@ -223,8 +212,6 @@ class TestChromatogramMethods:
 
     def test_chromatogram_with_scan_range(self, raw_file):
         """Test getting chromatogram with specific scan range."""
-        from thermo_raw_file_reader import TraceType
-
         run_header = raw_file.run_header
         mid_point = (run_header.first_spectrum + run_header.last_spectrum) // 2
 
@@ -316,15 +303,11 @@ class TestDataIntegrity:
 
     def test_chromatogram_array_lengths_match(self, raw_file):
         """Test that chromatogram time and intensity arrays have same length."""
-        from thermo_raw_file_reader import TraceType
-
         chrom = raw_file.get_chromatogram(TraceType.BasePeak)
         assert len(chrom.times) == len(chrom.intensities)
 
     def test_consistent_retention_times(self, raw_file):
         """Test that retention times are monotonically increasing."""
-        from thermo_raw_file_reader import TraceType
-
         chrom = raw_file.get_chromatogram(TraceType.BasePeak)
 
         if chrom.num_points > 1:

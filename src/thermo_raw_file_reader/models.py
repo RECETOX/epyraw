@@ -5,12 +5,9 @@ spectrum, chromatogram, and other mass spectrometry data.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import numpy as np
-
-if TYPE_CHECKING:
-    import pandas as pd
+import pandas as pd
 
 
 @dataclass
@@ -70,14 +67,12 @@ class Spectrum:
         """Return the total ion current (sum of all intensities)."""
         return float(np.sum(self.intensities))
 
-    def to_pandas(self) -> "pd.DataFrame":
+    def to_pandas(self) -> pd.DataFrame:
         """Convert to pandas DataFrame.
 
         Returns:
             DataFrame with columns 'mass', 'intensity', and optionally 'charge'.
         """
-        import pandas as pd
-
         data = {"mass": self.masses, "intensity": self.intensities}
         if self.charges is not None:
             data["charge"] = self.charges
@@ -165,14 +160,12 @@ class Chromatogram:
         # Simple trapezoidal integration
         return float(np.trapz(self.intensities, self.times))
 
-    def to_pandas(self) -> "pd.DataFrame":
+    def to_pandas(self) -> pd.DataFrame:
         """Convert to pandas DataFrame.
 
         Returns:
             DataFrame with columns 'time' and 'intensity'.
         """
-        import pandas as pd
-
         return pd.DataFrame({"time": self.times, "intensity": self.intensities})
 
     def __len__(self) -> int:
