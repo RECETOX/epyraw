@@ -1,19 +1,12 @@
 """Tests for data model classes."""
 
 import numpy as np
-import pytest
 
-from thermo_raw_file_reader.models import (
-    Chromatogram,
-    FileHeader,
-    InclusionListItem,
-    InstrumentData,
-    RunHeader,
-    SampleInformation,
-    ScanFilter,
-    Spectrum,
-    StatusLogField,
-)
+from thermo_raw_file_reader.models import (Chromatogram, FileHeader,
+                                           InclusionListItem, InstrumentData,
+                                           RunHeader, SampleInformation,
+                                           ScanFilter, Spectrum,
+                                           StatusLogField)
 
 
 class TestSpectrum:
@@ -64,8 +57,8 @@ class TestSpectrum:
         spec = Spectrum(masses=masses, intensities=intensities, scan_number=1)
         df = spec.to_pandas()
 
-        assert 'mass' in df.columns
-        assert 'intensity' in df.columns
+        assert "mass" in df.columns
+        assert "intensity" in df.columns
         assert len(df) == 2
 
 
@@ -112,8 +105,8 @@ class TestChromatogram:
         chrom = Chromatogram(times=times, intensities=intensities)
         df = chrom.to_pandas()
 
-        assert 'time' in df.columns
-        assert 'intensity' in df.columns
+        assert "time" in df.columns
+        assert "intensity" in df.columns
         assert len(df) == 3
 
 

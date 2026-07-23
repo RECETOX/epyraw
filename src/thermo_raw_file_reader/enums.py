@@ -4,18 +4,22 @@ These enums mirror the .NET enum types from the RawFileReader library,
 providing a Pythonic interface to filter and select data.
 """
 
-from enum import IntEnum, Enum
+from enum import IntEnum
 
 
 class Device(IntEnum):
-    """Instrument device types."""
+    """Instrument device types.
 
-    Analog = 0
-    MS = 1
-    MSAnalog = 2
-    Other = 3
+    Values match the Thermo RawFileReader .NET Device enum:
+    https://github.com/thermofisherlsms/RawFileReader
+    """
+
+    MS = 0
+    MSAnalog = 1
+    Analog = 2
+    Other = 5
     Pda = 4
-    UV = 5
+    UV = 3
 
 
 class MSOrderType(IntEnum):

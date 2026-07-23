@@ -24,7 +24,9 @@ class Spectrum:
     masses: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     """Array of m/z values."""
 
-    intensities: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
+    intensities: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=np.float64)
+    )
     """Array of intensity values."""
 
     charges: np.ndarray | None = None
@@ -110,7 +112,9 @@ class Chromatogram:
     times: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     """Array of retention times (in minutes)."""
 
-    intensities: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
+    intensities: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=np.float64)
+    )
     """Array of intensity values."""
 
     trace_type: int = 0
@@ -244,7 +248,9 @@ class FileHeader:
 
     def __repr__(self) -> str:
         """Return a string representation."""
-        return f"FileHeader(created={self.creation_date}, operator={self.who_created_id})"
+        return (
+            f"FileHeader(created={self.creation_date}, operator={self.who_created_id})"
+        )
 
 
 @dataclass

@@ -1,6 +1,5 @@
 """Pytest fixtures for tests."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -32,7 +31,7 @@ def raw_file(sample_raw_file):
     Opens the sample RAW file and selects the MS instrument.
     Uses context manager for proper cleanup.
     """
-    from thermo_raw_file_reader import RawFile, Device
+    from thermo_raw_file_reader import Device, RawFile
 
     with RawFile(str(sample_raw_file)) as rf:
         rf.select_instrument(Device.MS, 1)

@@ -7,26 +7,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .enums import Device, ToleranceUnits, TraceType
-from .exceptions import (
-    AssemblyLoadError,
-    InitializationError,
-    InstrumentNotSelectedError,
-    InvalidScanNumberError,
-    RawFileCorruptedError,
-    RawFileNotFoundError,
-    RawFileOpenError,
-)
-from .models import (
-    Chromatogram,
-    FileHeader,
-    InclusionListItem,
-    InstrumentData,
-    RunHeader,
-    SampleInformation,
-    ScanFilter,
-    Spectrum,
-    StatusLogField,
-)
+from .exceptions import (AssemblyLoadError, InitializationError,
+                         InstrumentNotSelectedError, InvalidScanNumberError,
+                         RawFileCorruptedError, RawFileNotFoundError,
+                         RawFileOpenError)
+from .models import (Chromatogram, FileHeader, InclusionListItem,
+                     InstrumentData, RunHeader, SampleInformation, ScanFilter,
+                     Spectrum, StatusLogField)
 
 if TYPE_CHECKING:
     import numpy as np
@@ -79,23 +66,22 @@ def set_runtime(runtime: str) -> None:
 
     try:
         from pythonnet import set_runtime as set_pythonnet_runtime
+
         set_pythonnet_runtime(runtime)
     except ImportError as e:
         raise InitializationError(
             "pythonnet not found. Install it with: pip install pythonnet"
         ) from e
     except Exception as e:
-        raise InitializationError(
-            f"Failed to set runtime to '{runtime}': {e}"
-        ) from e
+        raise InitializationError(f"Failed to set runtime to '{runtime}': {e}") from e
 
 
 def _initialize_dotnet(runtime: str | None = None) -> None:
     """Initialize the .NET runtime and load assemblies.
 
     This function should be called once before using any RawFile functionality.
-    It attempts to configure an appropriate .NET runtime, with Mono as the
-    default on Linux/macOS systems and CoreCLR as an alternative.
+    It attempts to configure an appropriate .NET runtime, with CoreCLR (.NET 6+)
+    preferred for compatibility with the Thermo RawFileReader libraries.
 
     Args:
         runtime: Optional explicit runtime choice. If None, uses default detection
@@ -104,57 +90,60 @@ def _initialize_dotnet(runtime: str | None = None) -> None:
     global _dotnet_initialized, _raw_file_class
     global _centroid_stream_class, _segmented_scan_class
     global _chromatogram_settings_class, _chromatogram_signal_class
-    global _scan_class, _filter_class, _device_class
+    global _scan_class, _filter_class, _device_class, _net_trace_type_class
 
     if _dotnet_initialized:
         return
 
-    try:
-        import clr
-    except ImportError as e:
-        raise InitializationError(
-            "pythonnet not found. Install it with: pip install pythonnet"
-        ) from e
+    # Check for local .NET installation first
+    dotnet_root = os.environ.get("DOTNET_ROOT")
+    if not dotnet_root:
+        # Try common locations
+        possible_dotnet_roots = [
+            Path.home() / ".dotnet",
+            Path("/usr/share/dotnet"),
+            Path("/opt/dotnet"),
+        ]
+        for p in possible_dotnet_roots:
+            if (p / "dotnet").exists():
+                dotnet_root = str(p)
+                os.environ["DOTNET_ROOT"] = dotnet_root
+                break
 
+    # Set runtime BEFORE importing clr
     # Runtime selection strategy:
     # 1. If explicitly specified, use that runtime
-    # 2. Otherwise, try the configured/default runtime first
-    # 3. Fall back to alternatives if needed
+    # 2. Otherwise, prefer coreclr for .NET 8 compatibility
     runtime_order = []
 
     if runtime:
         # Explicit runtime requested
         runtime_order = [runtime]
     else:
-        # Default strategy: try mono first (pre-installed on many Linux systems),
-        # then fall back to coreclr
-        runtime_order = ["mono", "coreclr", "default"]
+        # Default strategy: try coreclr first (for .NET 8 assemblies),
+        # then fall back to mono
+        runtime_order = ["coreclr", "mono"]
 
     last_error: Exception | None = None
 
     for rt in runtime_order:
         try:
-            if rt != "default":
-                from pythonnet import set_runtime as set_pythonnet_runtime
-                set_pythonnet_runtime(rt)
-            # Attempt to trigger runtime loading
-            import sys
-            if 'clr' in sys.modules:
-                break
+            from pythonnet import set_runtime as set_pythonnet_runtime
+
+            set_pythonnet_runtime(rt)
+            # Now try to import clr - this will use the configured runtime
+            import clr
+
+            # Success! clr imported with the configured runtime
+            break
         except Exception as e:
             last_error = e
             continue
-
-    if last_error and 'clr' not in sys.modules:
-        # If all attempts failed, try one more time without explicit setting
-        # to let pythonnet use its built-in detection
-        try:
-            import sys
-            if 'clr' not in sys.modules:
-                # Force reload to trigger default detection
-                pass
-        except Exception:
-            pass
+    else:
+        # All runtime attempts failed
+        raise InitializationError(
+            f"Failed to initialize .NET runtime. Last error: {last_error}"
+        ) from last_error
 
     # Get assembly path - check both package location and runtimes directory
     assembly_path = _get_assembly_path()
@@ -193,17 +182,14 @@ def _initialize_dotnet(runtime: str | None = None) -> None:
         clr.AddReference(str(assembly_file))
 
     # Import the main classes
-    from System import String
-    from ThermoFisher.CommonCore.RawFileReader import RawFileReaderAdapter
     from ThermoFisher.CommonCore.Data.Business import (
-        CentroidStream,
-        SegmentedScan,
-        ChromatogramTraceSettings,
-        ChromatogramSignal,
-        Scan,
-    )
-    from ThermoFisher.CommonCore.Data.FilterEnums import ScanFilter as FilterEnum
-    from ThermoFisher.CommonCore.Data.Interfaces import IScanFilter
+        CentroidStream, ChromatogramSignal, ChromatogramTraceSettings)
+    from ThermoFisher.CommonCore.Data.Business import \
+        Device as NetDevice  # Use alias to avoid conflict with our Device enum
+    from ThermoFisher.CommonCore.Data.Business import Scan, SegmentedScan
+    from ThermoFisher.CommonCore.Data.Business import \
+        TraceType as NetTraceType  # .NET TraceType enum for chromatograms
+    from ThermoFisher.CommonCore.RawFileReader import RawFileReaderAdapter
 
     _raw_file_class = RawFileReaderAdapter
     _centroid_stream_class = CentroidStream
@@ -211,8 +197,8 @@ def _initialize_dotnet(runtime: str | None = None) -> None:
     _chromatogram_settings_class = ChromatogramTraceSettings
     _chromatogram_signal_class = ChromatogramSignal
     _scan_class = Scan
-    _filter_class = FilterEnum
-    _device_class = Device
+    _device_class = NetDevice  # Store .NET Device class
+    _net_trace_type_class = NetTraceType  # Store .NET TraceType class
 
     _dotnet_initialized = True
 
@@ -258,6 +244,7 @@ class RawFile:
         # Open the file using RawFileReaderAdapter.FileFactory
         try:
             from System import String
+
             filepath_str = String(self._filepath)
             self._raw_file = _raw_file_class.FileFactory(filepath_str)
         except Exception as e:
@@ -269,15 +256,11 @@ class RawFile:
 
         # Check for file errors
         if self.is_error:
-            raise RawFileCorruptedError(
-                f"File has errors: {self.file_error}"
-            )
+            raise RawFileCorruptedError(f"File has errors: {self.file_error}")
 
         # Check if still in acquisition
         if self.in_acquisition:
-            raise RawFileOpenError(
-                f"File is still being acquired: {self._filepath}"
-            )
+            raise RawFileOpenError(f"File is still being acquired: {self._filepath}")
 
     @property
     def filepath(self) -> str:
@@ -370,16 +353,30 @@ class RawFile:
             return SampleInformation()
 
         si = self._raw_file.SampleInformation
+
+        # Helper function to safely convert values with defaults
+        def safe_int(val, default=0):
+            try:
+                return int(val) if val else default
+            except (ValueError, TypeError):
+                return default
+
+        def safe_float(val, default=0.0):
+            try:
+                return float(val) if val else default
+            except (ValueError, TypeError):
+                return default
+
         return SampleInformation(
             sample_name=str(si.SampleName) if si.SampleName else "",
             sample_id=str(si.SampleId) if si.SampleId else "",
             sample_type=int(si.SampleType),
             comment=str(si.Comment) if si.Comment else "",
-            vial=int(si.Vial),
-            sample_volume=float(si.SampleVolume),
-            injection_volume=float(si.InjectionVolume),
-            row_number=int(si.RowNumber),
-            dilution_factor=float(si.DilutionFactor),
+            vial=safe_int(si.Vial),
+            sample_volume=safe_float(si.SampleVolume),
+            injection_volume=safe_float(si.InjectionVolume),
+            row_number=safe_int(si.RowNumber),
+            dilution_factor=safe_float(si.DilutionFactor),
         )
 
     def select_instrument(self, device: Device, instance: int) -> None:
@@ -396,10 +393,8 @@ class RawFile:
             raise InstrumentNotSelectedError("No file is open")
 
         try:
-            # Convert Python Device enum to .NET Device
-            from ThermoFisher.CommonCore.Data.Interfaces import Device as NetDevice
-
-            self._raw_file.SelectInstrument(NetDevice(device), instance)
+            # Use the .NET Device class from Business module
+            self._raw_file.SelectInstrument(_device_class(device), instance)
             self._selected_device = device
             self._selected_instance = instance
         except Exception as e:
@@ -451,13 +446,20 @@ class RawFile:
             return ScanFilter()
 
         sf = self._raw_file.GetFilterForScanNumber(scan_number)
+        # Check for available attributes - DetectorType may not exist in all versions
+        detector_type = 0
+        if hasattr(sf, "DetectorType"):
+            detector_type = int(sf.DetectorType)
+        elif hasattr(sf, "DetectorValue"):
+            detector_type = int(sf.DetectorValue)
+
         return ScanFilter(
             filter_string=str(sf.ToString()),
             ms_order=int(sf.MSOrder),
             ionization_mode=int(sf.IonizationMode),
             polarity=int(sf.Polarity),
             mass_analyzer=int(sf.MassAnalyzer),
-            detector_type=int(sf.DetectorType),
+            detector_type=detector_type,
         )
 
     def retention_time_from_scan_number(self, scan_number: int) -> float:
@@ -486,9 +488,7 @@ class RawFile:
             return 0
         return int(self._raw_file.ScanNumberFromRetentionTime(retention_time))
 
-    def get_spectrum(
-        self, scan_number: int, centroid: bool = True
-    ) -> Spectrum:
+    def get_spectrum(self, scan_number: int, centroid: bool = True) -> Spectrum:
         """Get spectrum data for a scan.
 
         Args:
@@ -507,7 +507,10 @@ class RawFile:
 
         # Validate scan number
         run_header = self.run_header
-        if scan_number < run_header.first_spectrum or scan_number > run_header.last_spectrum:
+        if (
+            scan_number < run_header.first_spectrum
+            or scan_number > run_header.last_spectrum
+        ):
             raise InvalidScanNumberError(
                 f"Scan {scan_number} out of range ({run_header.first_spectrum}-"
                 f"{run_header.last_spectrum})"
@@ -517,7 +520,8 @@ class RawFile:
             if centroid:
                 # Get centroid/label data
                 centroid_stream = self._raw_file.GetCentroidStream(scan_number, False)
-                if centroid_stream is None or len(centroid_stream) == 0:
+                # Check length using Length property (.NET style)
+                if centroid_stream is None or centroid_stream.Length == 0:
                     # Fall back to segmented scan if no centroid data
                     return self._get_segmented_spectrum(scan_number)
 
@@ -525,7 +529,10 @@ class RawFile:
                 intensities = self._numpy_array_from_net(centroid_stream.Intensities)
 
                 charges = None
-                if hasattr(centroid_stream, 'Charges') and centroid_stream.Charges is not None:
+                if (
+                    hasattr(centroid_stream, "Charges")
+                    and centroid_stream.Charges is not None
+                ):
                     charges = self._numpy_array_from_net(centroid_stream.Charges)
 
                 return Spectrum(
@@ -582,13 +589,15 @@ class RawFile:
 
             return np.array([], dtype=np.float64)
 
-        # Use System.Array.CopyTo for conversion
+        # Use numpy's frombuffer or direct conversion for .NET arrays
         if isinstance(net_array, System.Array):
             import numpy as np
 
-            result = np.empty(len(net_array), dtype=np.float64)
-            net_array.CopyTo(result, 0)
-            return result
+            # For .NET 8, use a list comprehension approach
+            # which works more reliably across versions
+            return np.array(
+                [float(net_array[i]) for i in range(len(net_array))], dtype=np.float64
+            )
 
         # Fallback: try direct conversion
         import numpy as np
@@ -621,8 +630,12 @@ class RawFile:
             end_scan = self.run_header.last_spectrum
 
         try:
-            # Create chromatogram settings
-            settings = _chromatogram_settings_class(int(trace_type))
+            import numpy as np
+
+            # Create chromatogram settings using .NET TraceType enum
+            # pythonnet 3.0+ requires explicit enum conversion
+            net_trace_type = _net_trace_type_class(int(trace_type))
+            settings = _chromatogram_settings_class(net_trace_type)
 
             # Get chromatogram data
             data = self._raw_file.GetChromatogramData(
@@ -632,13 +645,25 @@ class RawFile:
             # Extract signal
             traces = _chromatogram_signal_class.FromChromatogramData(data)
 
-            if len(traces) == 0 or len(traces[0]) == 0:
+            # Check for empty result - use .Length for .NET arrays
+            if traces.Length == 0:
                 return Chromatogram(trace_type=int(trace_type))
 
-            # Get the first trace
             trace = traces[0]
-            times = self._numpy_array_from_net(trace.Times)
-            intensities = self._numpy_array_from_net(trace.Intensities)
+
+            # Check if trace has data - IList uses .Count property
+            if trace.Times.Count == 0:
+                return Chromatogram(trace_type=int(trace_type))
+
+            # Convert IList to numpy arrays
+            times = np.array(
+                [float(trace.Times[i]) for i in range(trace.Times.Count)],
+                dtype=np.float64,
+            )
+            intensities = np.array(
+                [float(trace.Intensities[i]) for i in range(trace.Intensities.Count)],
+                dtype=np.float64,
+            )
 
             return Chromatogram(
                 times=times,
@@ -647,8 +672,7 @@ class RawFile:
             )
 
         except Exception as e:
-            # Return empty chromatogram on error
-            return Chromatogram(trace_type=int(trace_type))
+            raise RuntimeError(f"Failed to get chromatogram: {e}") from e
 
     def average_scans(
         self,
@@ -658,52 +682,22 @@ class RawFile:
     ) -> Spectrum:
         """Average spectra within a scan range.
 
+        Note: This functionality requires a newer version of the RawFileReader
+        library that supports DefaultMassOptions and AverageScansInScanRange.
+        The current bundled version does not support these methods.
+
         Args:
             scan_range: Tuple of (first_scan, last_scan).
             tolerance: Mass tolerance for aligning peaks.
             tolerance_units: Units for tolerance (ppm or Da).
 
-        Returns:
-            Averaged Spectrum object.
+        Raises:
+            NotImplementedError: If the library version doesn't support averaging.
         """
-        if self._raw_file is None:
-            return Spectrum()
-
-        first_scan, last_scan = scan_range
-
-        try:
-            # Get default mass options and configure
-            options = self._raw_file.DefaultMassOptions()
-            options.ToleranceUnits = int(tolerance_units)
-            options.Tolerance = float(tolerance)
-
-            # Get filter for the first scan
-            scan_filter = self._raw_file.GetFilterForScanNumber(first_scan)
-
-            # Get average spectrum
-            avg_scan = self._raw_file.AverageScansInScanRange(
-                first_scan, last_scan, scan_filter, options
-            )
-
-            if avg_scan is None or not hasattr(avg_scan, 'CentroidScan'):
-                return Spectrum()
-
-            centroid = avg_scan.CentroidScan
-            if centroid is None or len(centroid) == 0:
-                return Spectrum()
-
-            masses = self._numpy_array_from_net(centroid.Masses)
-            intensities = self._numpy_array_from_net(centroid.Intensities)
-
-            return Spectrum(
-                masses=masses,
-                intensities=intensities,
-                scan_number=first_scan,
-                is_centroid=True,
-            )
-
-        except Exception as e:
-            return Spectrum()
+        raise NotImplementedError(
+            "Spectrum averaging is not supported by the bundled RawFileReader version. "
+            "Please use a newer version of the library that includes DefaultMassOptions."
+        )
 
     def get_trailer_extra_information(self, scan_number: int) -> dict[str, str]:
         """Get trailer extra data fields for a scan.
@@ -734,8 +728,8 @@ class RawFile:
 
             return result
 
-        except Exception:
-            return {}
+        except Exception as e:
+            raise RuntimeError(f"Failed to get trailer extra information: {e}") from e
 
     def get_status_log_header_information(self) -> list[StatusLogField]:
         """Get status log field definitions.
@@ -746,19 +740,16 @@ class RawFile:
         if self._raw_file is None:
             return []
 
-        try:
-            fields = self._raw_file.GetStatusLogHeaderInformation()
-            result = []
-            for field in fields:
-                result.append(
-                    StatusLogField(
-                        label=str(field.Label) if field.Label else "",
-                        data_type=int(field.DataType),
-                    )
+        fields = self._raw_file.GetStatusLogHeaderInformation()
+        result = []
+        for field in fields:
+            result.append(
+                StatusLogField(
+                    label=str(field.Label) if field.Label else "",
+                    data_type=int(field.DataType),
                 )
-            return result
-        except Exception:
-            return []
+            )
+        return result
 
     def get_inclusion_exclusion_list(
         self, mass_tolerance: float = 1e-5
@@ -777,56 +768,55 @@ class RawFile:
         if self._raw_file is None:
             return []
 
-        try:
-            result = []
+        result = []
 
-            # Look for "Mass List Table" in instrument methods
-            inclusion_strings = []
-            for i in range(self._raw_file.InstrumentMethodsCount):
-                method_text = str(self._raw_file.GetInstrumentMethod(i))
-                if "Mass List Table" in method_text:
-                    lines = method_text.split("\n")
-                    save_line = False
-                    for line in lines:
-                        if "Mass List Table" in line:
-                            save_line = True
-                            continue
-                        if "End Mass List Table" in line:
-                            save_line = False
-                            continue
-                        if save_line and line.strip():
-                            inclusion_strings.append(line)
-
-            # Parse inclusion list items
-            for line in inclusion_strings:
-                if "CompoundName" in line:
-                    continue  # Skip header
-
-                parts = line.split("|")
-                if len(parts) >= 3:
-                    try:
-                        item = InclusionListItem(
-                            descriptor=parts[0].strip(),
-                            mass=float(parts[1].strip()),
-                            threshold=float(parts[2].strip()),
-                        )
-                        result.append(item)
-                    except ValueError:
+        # Look for "Mass List Table" in instrument methods
+        inclusion_strings = []
+        for i in range(self._raw_file.InstrumentMethodsCount):
+            method_text = str(self._raw_file.GetInstrumentMethod(i))
+            if "Mass List Table" in method_text:
+                lines = method_text.split("\n")
+                save_line = False
+                for line in lines:
+                    if "Mass List Table" in line:
+                        save_line = True
                         continue
+                    if "End Mass List Table" in line:
+                        save_line = False
+                        continue
+                    if save_line and line.strip():
+                        inclusion_strings.append(line)
 
-            return result
+        # Parse inclusion list items
+        for line in inclusion_strings:
+            if "CompoundName" in line:
+                continue  # Skip header
 
-        except Exception:
-            return []
+            parts = line.split("|")
+            if len(parts) >= 3:
+                try:
+                    item = InclusionListItem(
+                        descriptor=parts[0].strip(),
+                        mass=float(parts[1].strip()),
+                        threshold=float(parts[2].strip()),
+                    )
+                    result.append(item)
+                except ValueError:
+                    continue
+
+        return result
 
     def close(self) -> None:
         """Close the file and release resources."""
         if self._raw_file is not None:
-            try:
-                self._raw_file.Dispose()
-            except Exception:
-                pass
+            rf = self._raw_file
             self._raw_file = None
+            try:
+                rf.Dispose()
+            except BaseException:
+                # Ignore all errors during disposal, especially in __del__
+                # where the interpreter may be shutting down
+                pass
 
     def __enter__(self) -> RawFile:
         """Context manager entry."""

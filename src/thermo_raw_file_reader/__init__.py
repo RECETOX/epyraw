@@ -12,38 +12,16 @@ Example:
     ...     print(f"Peaks: {spectrum.num_peaks}")
 """
 
-from .enums import (
-    Device,
-    DetectorType,
-    IonizationMode,
-    MSOrderType,
-    MassAnalyzerType,
-    PolarityType,
-    SampleType,
-    ToleranceUnits,
-    TraceType,
-)
-from .exceptions import (
-    AssemblyLoadError,
-    InitializationError,
-    InstrumentNotSelectedError,
-    InvalidScanNumberError,
-    RawFileCorruptedError,
-    RawFileNotFoundError,
-    RawFileOpenError,
-    ThermoRawFileError,
-)
-from .models import (
-    Chromatogram,
-    FileHeader,
-    InclusionListItem,
-    InstrumentData,
-    RunHeader,
-    SampleInformation,
-    ScanFilter,
-    Spectrum,
-    StatusLogField,
-)
+from .enums import (DetectorType, Device, IonizationMode, MassAnalyzerType,
+                    MSOrderType, PolarityType, SampleType, ToleranceUnits,
+                    TraceType)
+from .exceptions import (AssemblyLoadError, InitializationError,
+                         InstrumentNotSelectedError, InvalidScanNumberError,
+                         RawFileCorruptedError, RawFileNotFoundError,
+                         RawFileOpenError, ThermoRawFileError)
+from .models import (Chromatogram, FileHeader, InclusionListItem,
+                     InstrumentData, RunHeader, SampleInformation, ScanFilter,
+                     Spectrum, StatusLogField)
 from .raw_file import RawFile, set_runtime
 
 __version__ = "0.1.0"
