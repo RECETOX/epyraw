@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from thermo_raw_file_reader import Device, RawFile
+from epyraw import Device, RawFile
 
 # Path to the test data file
 TEST_DATA_DIR = Path(__file__).parent / "testdata"

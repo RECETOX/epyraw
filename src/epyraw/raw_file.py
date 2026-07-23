@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 
+from .download import ensure_runtimes_available, get_default_runtime_path
 from .enums import Device, ToleranceUnits, TraceType
 from .exceptions import (AssemblyLoadError, InitializationError,
                          InstrumentNotSelectedError, InvalidScanNumberError,
@@ -28,12 +29,52 @@ _chromatogram_signal_class: Any = None
 _scan_class: Any = None
 _filter_class: Any = None
 _device_class: Any = None
+_assembly_path: Path | None = None
 
 
 def _get_assembly_path() -> Path:
-    """Get the path to the .NET assemblies."""
-    package_dir = Path(__file__).parent
-    return package_dir / "runtimes" / "net8old"
+    """Get the path to the .NET assemblies.
+
+    Checks in order:
+    1. EPYRAW_RUNTIME_PATH environment variable
+    2. ~/.epyraw/runtimes/net8old/
+    3. Downloads if not found
+
+    Returns:
+        Path to the runtime assemblies
+
+    Raises:
+        AssemblyLoadError: If no runtime path found and download fails
+    """
+    global _assembly_path
+
+    if _assembly_path is not None:
+        return _assembly_path
+
+    # Check environment variable first
+    env_path = os.environ.get("EPYRAW_RUNTIME_PATH")
+    if env_path:
+        path = Path(env_path)
+        if path.exists():
+            _assembly_path = path
+            return path
+
+    # Check default user path
+    default_path = get_default_runtime_path()
+    if default_path.exists():
+        _assembly_path = default_path
+        return default_path
+
+    # Try to download
+    try:
+        _assembly_path = ensure_runtimes_available()
+        return _assembly_path
+    except Exception:
+        raise AssemblyLoadError(
+            "Runtime DLLs not found. Please run:\n"
+            "  epyraw download\n"
+            "or set EPYRAW_RUNTIME_PATH environment variable."
+        )
 
 
 def set_runtime(runtime: str) -> None:
@@ -50,7 +91,7 @@ def set_runtime(runtime: str) -> None:
             - "default": Use pythonnet's default runtime detection
 
     Example:
-        >>> from thermo_raw_file_reader import set_runtime, RawFile
+        >>> from epyraw import set_runtime, RawFile
         >>> set_runtime("mono")  # or "coreclr"
         >>> with RawFile("data.raw") as rf:
         ...     pass
@@ -209,7 +250,7 @@ class RawFile:
     spectrometry files.
 
     Example:
-        >>> from thermo_raw_file_reader import RawFile, Device
+        >>> from epyraw import RawFile, Device
         >>> with RawFile("data.raw") as rf:
         ...     rf.select_instrument(Device.MS, 1)
         ...     print(f"Scans: {rf.run_header.spectra_count}")

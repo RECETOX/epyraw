@@ -2,7 +2,7 @@
 
 import pytest
 
-from thermo_raw_file_reader import (Device, InvalidScanNumberError, RawFile,
+from epyraw import (Device, InvalidScanNumberError, RawFile,
                                     RawFileNotFoundError, TraceType)
 
 
@@ -129,25 +129,25 @@ class TestSpectrumMethods:
         """Test spectrum mass range property."""
         spectrum = raw_file.get_spectrum(1, centroid=True)
 
-        if spectrum.num_peaks > 0:
-            assert spectrum.mass_range[0] < spectrum.mass_range[1]
-            assert spectrum.mass_range[0] > 0
+        assert spectrum.num_peaks > 0
+        assert spectrum.mass_range[0] < spectrum.mass_range[1]
+        assert spectrum.mass_range[0] > 0
 
     def test_spectrum_base_peak(self, raw_file):
         """Test spectrum base peak property."""
         spectrum = raw_file.get_spectrum(1, centroid=True)
 
-        if spectrum.num_peaks > 0:
-            mz, intensity = spectrum.base_peak
-            assert mz > 0
-            assert intensity > 0
+        assert spectrum.num_peaks > 0
+        mz, intensity = spectrum.base_peak
+        assert mz > 0
+        assert intensity > 0
 
     def test_spectrum_total_ion_current(self, raw_file):
         """Test spectrum total ion current property."""
         spectrum = raw_file.get_spectrum(1, centroid=True)
 
-        if spectrum.num_peaks > 0:
-            assert spectrum.total_ion_current > 0
+        assert spectrum.num_peaks > 0
+        assert spectrum.total_ion_current > 0
 
     def test_spectrum_to_pandas(self, raw_file):
         """Test converting spectrum to pandas DataFrame."""

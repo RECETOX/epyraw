@@ -1,10 +1,10 @@
-"""Thermo RawFile Reader - Python wrapper for Thermo Fisher RawFileReader library.
+"""Epyraw - Python wrapper for Thermo Fisher RawFileReader library.
 
 This package provides a Pythonic interface to read Thermo Scientific .raw
 mass spectrometry files using the official RawFileReader .NET library.
 
 Example:
-    >>> from thermo_raw_file_reader import RawFile, Device
+    >>> from epyraw import RawFile, Device
     >>> with RawFile("data.raw") as rf:
     ...     rf.select_instrument(Device.MS, 1)
     ...     print(f"Scans: {rf.run_header.spectra_count}")
@@ -12,6 +12,7 @@ Example:
     ...     print(f"Peaks: {spectrum.num_peaks}")
 """
 
+from .download import check_runtimes_present, download_runtimes, get_default_runtime_path
 from .enums import (DetectorType, Device, IonizationMode, MassAnalyzerType,
                     MSOrderType, PolarityType, SampleType, ToleranceUnits,
                     TraceType)
@@ -30,6 +31,10 @@ __all__ = [
     # Main class
     "RawFile",
     "set_runtime",
+    # Download functions
+    "download_runtimes",
+    "check_runtimes_present",
+    "get_default_runtime_path",
     # Enums
     "Device",
     "DetectorType",

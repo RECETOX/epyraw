@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Basic usage examples for thermo_raw_file_reader."""
+"""Basic usage examples for epyraw."""
 
-from thermo_raw_file_reader import Device, RawFile, TraceType
+from epyraw import Device, RawFile, TraceType
 
 
 def main():

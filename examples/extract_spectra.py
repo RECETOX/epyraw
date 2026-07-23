@@ -7,7 +7,7 @@ and extract spectrum data for further analysis.
 
 from typing import Any
 
-from thermo_raw_file_reader import Device, RawFile
+from epyraw import Device, RawFile
 
 
 def extract_all_spectra(filepath: str) -> dict[str, Any]:

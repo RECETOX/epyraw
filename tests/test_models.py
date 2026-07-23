@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from thermo_raw_file_reader.models import (Chromatogram, FileHeader,
+from epyraw.models import (Chromatogram, FileHeader,
                                            InclusionListItem, InstrumentData,
                                            RunHeader, SampleInformation,
                                            ScanFilter, Spectrum,
