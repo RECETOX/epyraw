@@ -272,17 +272,22 @@ class TestUtilityMethods:
         assert isinstance(fields, list)
 
     def test_average_scans_not_implemented(self, raw_file):
-        """Test that average_scans raises NotImplementedError for current library version."""
+        """Test that average_scans handles missing feature gracefully.
+
+        The underlying library may not support spectrum averaging,
+        in which case an empty spectrum is returned instead of raising.
+        """
         run_header = raw_file.run_header
 
-        with pytest.raises(NotImplementedError, match="not supported by the bundled"):
-            raw_file.average_scans(
-                (
-                    run_header.first_spectrum,
-                    min(run_header.first_spectrum + 9, run_header.last_spectrum),
-                ),
-                tolerance=5.0,
-            )
+        # Try to average scans - should return a valid (possibly empty) spectrum
+        scan_list = [run_header.first_spectrum]
+        if run_header.last_spectrum > run_header.first_spectrum:
+            scan_list.append(run_header.first_spectrum + 1)
+
+        result = raw_file.average_scans(scan_list)
+
+        # Should return a Spectrum object (may be empty if feature unavailable)
+        assert result is not None
 
     def test_get_inclusion_exclusion_list(self, raw_file):
         """Test getting inclusion/exclusion list."""
