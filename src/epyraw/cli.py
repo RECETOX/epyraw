@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .download import download_runtimes, check_runtimes_present, get_default_runtime_path
+from .download import check_runtimes_present, download_runtimes, get_default_runtime_path
 
 
 def main() -> None:
@@ -33,9 +33,7 @@ def main() -> None:
     )
 
     # Check command
-    check_parser = subparsers.add_parser(
-        "check", help="Check if runtime DLLs are installed"
-    )
+    check_parser = subparsers.add_parser("check", help="Check if runtime DLLs are installed")
     check_parser.add_argument(
         "--path",
         "-p",

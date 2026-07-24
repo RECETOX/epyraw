@@ -21,9 +21,7 @@ class Spectrum:
     masses: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     """Array of m/z values."""
 
-    intensities: np.ndarray = field(
-        default_factory=lambda: np.array([], dtype=np.float64)
-    )
+    intensities: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     """Array of intensity values."""
 
     charges: np.ndarray | None = None
@@ -107,9 +105,7 @@ class Chromatogram:
     times: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     """Array of retention times (in minutes)."""
 
-    intensities: np.ndarray = field(
-        default_factory=lambda: np.array([], dtype=np.float64)
-    )
+    intensities: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     """Array of intensity values."""
 
     trace_type: int = 0
@@ -241,9 +237,7 @@ class FileHeader:
 
     def __repr__(self) -> str:
         """Return a string representation."""
-        return (
-            f"FileHeader(created={self.creation_date}, operator={self.who_created_id})"
-        )
+        return f"FileHeader(created={self.creation_date}, operator={self.who_created_id})"
 
 
 @dataclass
@@ -451,8 +445,7 @@ class ScanHeader:
     def __repr__(self) -> str:
         """Return a string representation."""
         return (
-            f"ScanHeader(scan={self.scan_number}, ms_level={self.ms_level}, "
-            f"type={self.scan_type})"
+            f"ScanHeader(scan={self.scan_number}, ms_level={self.ms_level}, type={self.scan_type})"
         )
 
 
@@ -476,8 +469,7 @@ class Reaction:
     def __repr__(self) -> str:
         """Return a string representation."""
         return (
-            f"Reaction(precursor={self.precursor_mass:.4f} Da, "
-            f"CE={self.collision_energy:.1f} eV)"
+            f"Reaction(precursor={self.precursor_mass:.4f} Da, CE={self.collision_energy:.1f} eV)"
         )
 
 
@@ -608,15 +600,22 @@ class AutoSamplerInformation:
     vials_per_tray_y: int = -1
     """Number of vial positions along Y axis."""
 
-    tray_shape: "TrayShape | None" = None
+    tray_shape: object = None  # TrayShape | None
     """Tray shape as TrayShape enum (or None if unknown)."""
 
     tray_name: str = ""
     """Tray name/description."""
 
     @classmethod
-    def _from_raw(cls, tray_index: int, vial_index: int, vials_per_tray_x: int,
-                  vials_per_tray_y: int, tray_shape_int: int, tray_name: str):
+    def _from_raw(
+        cls,
+        tray_index: int,
+        vial_index: int,
+        vials_per_tray_x: int,
+        vials_per_tray_y: int,
+        tray_shape_int: int,
+        tray_name: str,
+    ):
         """Create from raw integer values (internal use)."""
         from .enums import TrayShape
 

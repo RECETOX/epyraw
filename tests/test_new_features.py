@@ -5,7 +5,6 @@ based on the epyraw_enhancement_opportunities.md analysis.
 """
 
 import pytest
-import numpy as np
 
 from epyraw import (
     BarcodeStatusType,
@@ -24,7 +23,6 @@ from epyraw.models import (
     ScanHeader,
     ScanStats,
 )
-
 
 # =============================================================================
 # Tests for New Enums
@@ -487,19 +485,18 @@ class TestGetScanHeader:
         """Test getting scan header for MS2 scan if available."""
         run_header = raw_file.run_header
 
-        # Try to find an MS2 scan
-        ms2_found = False
-        for scan_num in range(run_header.first_spectrum, min(run_header.last_spectrum + 1, run_header.first_spectrum + 100)):
+        # Try to find an MS2 scan (some files may only have MS1)
+        for scan_num in range(
+            run_header.first_spectrum,
+            min(run_header.last_spectrum + 1, run_header.first_spectrum + 100),
+        ):
             try:
                 header = raw_file.get_scan_header(scan_num)
                 if header.ms_level >= 2:
-                    ms2_found = True
                     assert header.precursor_scan_num > 0 or header.ms_level == 1
                     break
             except Exception:
                 continue
-
-        # Note: We don't assert ms2_found because some files may only have MS1 scans
 
     def test_get_scan_header_invalid_scan(self, raw_file):
         """Test handling of invalid scan number.
@@ -653,9 +650,7 @@ class TestAverageScansInScanRange:
 
         if last > first:
             options = MassOptions(tolerance=10.0, tolerance_units=0)  # 10 Da
-            avg_spectrum = raw_file.average_scans_in_scan_range(
-                first, last, options=options
-            )
+            avg_spectrum = raw_file.average_scans_in_scan_range(first, last, options=options)
 
             assert avg_spectrum is not None
 
@@ -817,9 +812,7 @@ class TestGetScanDependents:
         run_header = raw_file.run_header
 
         # Request only 2 dependents
-        dependents = raw_file.get_scan_dependents(
-            run_header.first_spectrum, max_dependents=2
-        )
+        dependents = raw_file.get_scan_dependents(run_header.first_spectrum, max_dependents=2)
 
         assert len(dependents.scan_dependent_details) <= 2
 
@@ -931,9 +924,6 @@ class TestNewFeaturesIntegration:
 
     def test_instrument_enumeration_workflow(self, raw_file):
         """Test enumerating all instruments in the file."""
-        # Get total count
-        total = raw_file.instrument_count
-
         # Count by type - these may fail if method not available
         try:
             ms_count = raw_file.get_instrument_count_by_type(Device.MS)
@@ -971,7 +961,6 @@ class TestNewFeaturesIntegration:
         run_header = raw_file.run_header
 
         # Look for MS2+ scans with valid precursor scan numbers
-        ms2_found = False
         for scan_num in range(
             run_header.first_spectrum,
             min(run_header.last_spectrum + 1, run_header.first_spectrum + 200),
@@ -979,18 +968,14 @@ class TestNewFeaturesIntegration:
             header = raw_file.get_scan_header(scan_num)
 
             if header.ms_level >= 2 and header.precursor_scan_num > 0:
-                ms2_found = True
                 # Get parent-child relationship
                 try:
-                    dependents = raw_file.get_scan_dependents(header.precursor_scan_num)
+                    _ = raw_file.get_scan_dependents(header.precursor_scan_num)
                 except Exception:
                     # May fail if precursor scan doesn't exist
                     pass
 
-                # Get reaction data
-                event = raw_file.get_scan_event(scan_num)
-                # Event should exist even if no reactions
+                # Get reaction data (should exist even if no reactions)
+                _ = raw_file.get_scan_event(scan_num)
 
                 break  # Found one, that's enough for the test
-
-        # Note: We don't assert ms2_found because some files may only have MS1 scans

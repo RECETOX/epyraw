@@ -13,8 +13,7 @@ Focus areas:
 
 import pytest
 
-from epyraw import Device, RawFile, ScanTypeEnum, SpectrumPacketType
-
+from epyraw import Device
 
 # =============================================================================
 # Session-scoped fixture tests - Core Features
@@ -315,12 +314,12 @@ class TestZenodoEdgeCases:
         info = rf.auto_sampler_information
 
         # All attributes should be accessible
-        assert hasattr(info, 'tray_index')
-        assert hasattr(info, 'vial_index')
-        assert hasattr(info, 'vials_per_tray_x')
-        assert hasattr(info, 'vials_per_tray_y')
-        assert hasattr(info, 'tray_shape')
-        assert hasattr(info, 'tray_name')
+        assert hasattr(info, "tray_index")
+        assert hasattr(info, "vial_index")
+        assert hasattr(info, "vials_per_tray_x")
+        assert hasattr(info, "vials_per_tray_y")
+        assert hasattr(info, "tray_shape")
+        assert hasattr(info, "tray_name")
 
         # tray_shape should be a TrayShape enum or None
         if info.tray_index == -1:
@@ -353,7 +352,9 @@ class TestZenodoEdgeCases:
         # Find an MS2 scan and check its parent's dependents
         rh = rf.run_header
 
-        for scan_num in range(rh.first_spectrum, min(rh.last_spectrum + 1, rh.first_spectrum + 500)):
+        for scan_num in range(
+            rh.first_spectrum, min(rh.last_spectrum + 1, rh.first_spectrum + 500)
+        ):
             header = rf.get_scan_header(scan_num)
 
             if header.ms_level >= 2 and header.precursor_scan_num > 0:
@@ -363,7 +364,7 @@ class TestZenodoEdgeCases:
                     dependents = rf.get_scan_dependents(prec_scan, max_dependents=5)
 
                     # Should return a ScanDependents object
-                    assert hasattr(dependents, 'scan_dependent_details')
+                    assert hasattr(dependents, "scan_dependent_details")
                     assert isinstance(dependents.scan_dependent_details, list)
                 except Exception:
                     # Some versions may not support this

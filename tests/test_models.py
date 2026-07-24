@@ -2,13 +2,25 @@
 
 import numpy as np
 
-from epyraw.models import (AutoSamplerInformation, Chromatogram, FileHeader,
-                                           InclusionListItem, InstrumentData,
-                                           MassOptions, Reaction, RunHeader,
-                                           SampleInformation, ScanDependentDetail,
-                                           ScanDependents, ScanEvent, ScanHeader,
-                                           ScanStats, ScanFilter, Spectrum,
-                                           StatusLogField)
+from epyraw.models import (
+    AutoSamplerInformation,
+    Chromatogram,
+    FileHeader,
+    InclusionListItem,
+    InstrumentData,
+    MassOptions,
+    Reaction,
+    RunHeader,
+    SampleInformation,
+    ScanDependentDetail,
+    ScanDependents,
+    ScanEvent,
+    ScanFilter,
+    ScanHeader,
+    ScanStats,
+    Spectrum,
+    StatusLogField,
+)
 
 
 class TestSpectrum:
@@ -490,7 +502,6 @@ class TestAutoSamplerInformation:
 
     def test_auto_sampler_repr(self):
         """Test string representation of AutoSamplerInformation."""
-        from epyraw import TrayShape
 
         info = AutoSamplerInformation._from_raw(
             tray_index=1,

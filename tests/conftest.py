@@ -63,7 +63,7 @@ def zenodo_raw_file() -> Path:
 
     # Download the file
     print(f"\nDownloading test file from Zenodo ({ZENODO_URL})...")
-    print(f"This is a large file (~2.4GB). This will only happen once per session.")
+    print("This is a large file (~2.4GB). This will only happen once per session.")
 
     import urllib.request
 

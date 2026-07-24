@@ -2,8 +2,7 @@
 
 import pytest
 
-from epyraw import (Device, InvalidScanNumberError, RawFile,
-                                    RawFileNotFoundError, TraceType)
+from epyraw import Device, InvalidScanNumberError, RawFile, RawFileNotFoundError, TraceType
 
 
 class TestRawFileInit:
@@ -318,6 +317,4 @@ class TestDataIntegrity:
         if chrom.num_points > 1:
             times = chrom.times
             for i in range(1, len(times)):
-                assert times[i] >= times[i - 1], (
-                    "Retention times should be non-decreasing"
-                )
+                assert times[i] >= times[i - 1], "Retention times should be non-decreasing"

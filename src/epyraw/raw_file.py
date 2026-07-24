@@ -9,16 +9,38 @@ from typing import Any
 import numpy as np
 
 from .download import ensure_runtimes_available, get_default_runtime_path
-from .enums import BarcodeStatusType, Device, ScanTypeEnum, SpectrumPacketType, TrayShape, ToleranceUnits, TraceType
-from .exceptions import (AssemblyLoadError, InitializationError,
-                         InstrumentNotSelectedError, InvalidScanNumberError,
-                         RawFileCorruptedError, RawFileNotFoundError,
-                         RawFileOpenError)
-from .models import (AutoSamplerInformation, Chromatogram, FileHeader, InclusionListItem,
-                     InstrumentData, MassOptions, Reaction, RunHeader, SampleInformation, ScanDependentDetail,
-                     ScanDependents, ScanEvent, ScanHeader, ScanStats, ScanFilter,
-                     Spectrum, StatusLogField)
-
+from .enums import (
+    Device,
+    TraceType,
+)
+from .exceptions import (
+    AssemblyLoadError,
+    InitializationError,
+    InstrumentNotSelectedError,
+    InvalidScanNumberError,
+    RawFileCorruptedError,
+    RawFileNotFoundError,
+    RawFileOpenError,
+)
+from .models import (
+    AutoSamplerInformation,
+    Chromatogram,
+    FileHeader,
+    InclusionListItem,
+    InstrumentData,
+    MassOptions,
+    Reaction,
+    RunHeader,
+    SampleInformation,
+    ScanDependentDetail,
+    ScanDependents,
+    ScanEvent,
+    ScanFilter,
+    ScanHeader,
+    ScanStats,
+    Spectrum,
+    StatusLogField,
+)
 
 # Module-level state for .NET initialization
 _dotnet_initialized: bool = False
@@ -70,12 +92,12 @@ def _get_assembly_path() -> Path:
     try:
         _assembly_path = ensure_runtimes_available()
         return _assembly_path
-    except Exception:
+    except Exception as e:
         raise AssemblyLoadError(
             "Runtime DLLs not found. Please run:\n"
             "  epyraw download\n"
             "or set EPYRAW_RUNTIME_PATH environment variable."
-        )
+        ) from e
 
 
 def set_runtime(runtime: str) -> None:
@@ -224,12 +246,18 @@ def _initialize_dotnet(runtime: str | None = None) -> None:
 
     # Import the main classes
     from ThermoFisher.CommonCore.Data.Business import (
-        CentroidStream, ChromatogramSignal, ChromatogramTraceSettings)
-    from ThermoFisher.CommonCore.Data.Business import \
-        Device as NetDevice  # Use alias to avoid conflict with our Device enum
-    from ThermoFisher.CommonCore.Data.Business import Scan, SegmentedScan
-    from ThermoFisher.CommonCore.Data.Business import \
-        TraceType as NetTraceType  # .NET TraceType enum for chromatograms
+        CentroidStream,
+        ChromatogramSignal,
+        ChromatogramTraceSettings,
+        Scan,
+        SegmentedScan,
+    )
+    from ThermoFisher.CommonCore.Data.Business import (
+        Device as NetDevice,  # Use alias to avoid conflict with our Device enum
+    )
+    from ThermoFisher.CommonCore.Data.Business import (
+        TraceType as NetTraceType,  # .NET TraceType enum for chromatograms
+    )
     from ThermoFisher.CommonCore.RawFileReader import RawFileReaderAdapter
 
     _raw_file_class = RawFileReaderAdapter
@@ -477,7 +505,7 @@ class RawFile:
         if self._raw_file is None:
             return []
         labels = self._raw_file.UserLabel
-        return [str(l) if l else "" for l in labels]
+        return [str(label) if label else "" for label in labels]
 
     @property
     def include_reference_and_exception_data(self) -> bool:
@@ -675,11 +703,13 @@ class RawFile:
                     for i in range(reaction_count):
                         try:
                             reaction = scan_event.GetReaction(i)
-                            reactions.append(Reaction(
-                                precursor_mass=float(getattr(reaction, "PrecursorMass", 0)),
-                                collision_energy=float(getattr(reaction, "CollisionEnergy", 0)),
-                                isolation_width=float(getattr(reaction, "IsolationWidth", 0)),
-                            ))
+                            reactions.append(
+                                Reaction(
+                                    precursor_mass=float(getattr(reaction, "PrecursorMass", 0)),
+                                    collision_energy=float(getattr(reaction, "CollisionEnergy", 0)),
+                                    isolation_width=float(getattr(reaction, "IsolationWidth", 0)),
+                                )
+                            )
                         except Exception:
                             break
 
@@ -861,8 +891,9 @@ class RawFile:
                 options = self.default_mass_options()
 
             # Create .NET List<int> for scan numbers
-            from System.Collections.Generic import List
             from System import Int32
+            from System.Collections.Generic import List
+
             scan_list = List[Int32]()
             for num in scan_numbers:
                 scan_list.Add(int(num))
@@ -983,14 +1014,18 @@ class RawFile:
             details = []
             if hasattr(dependents, "ScanDependentDetailArray"):
                 for detail in dependents.ScanDependentDetailArray:
-                    details.append(ScanDependentDetail(
-                        scan_number=int(detail.ScanNumber),
-                        scan_type=str(detail.ScanType) if detail.ScanType else "",
-                        ms_level=int(detail.MSLevel),
-                    ))
+                    details.append(
+                        ScanDependentDetail(
+                            scan_number=int(detail.ScanNumber),
+                            scan_type=str(detail.ScanType) if detail.ScanType else "",
+                            ms_level=int(detail.MSLevel),
+                        )
+                    )
 
             return ScanDependents(
-                raw_file_instrument_type=str(dependents.RawFileInstrumentType) if dependents.RawFileInstrumentType else "",
+                raw_file_instrument_type=str(dependents.RawFileInstrumentType)
+                if dependents.RawFileInstrumentType
+                else "",
                 scan_dependent_details=details,
             )
         except Exception as e:
@@ -1085,10 +1120,7 @@ class RawFile:
 
         # Validate scan number
         run_header = self.run_header
-        if (
-            scan_number < run_header.first_spectrum
-            or scan_number > run_header.last_spectrum
-        ):
+        if scan_number < run_header.first_spectrum or scan_number > run_header.last_spectrum:
             raise InvalidScanNumberError(
                 f"Scan {scan_number} out of range ({run_header.first_spectrum}-"
                 f"{run_header.last_spectrum})"
@@ -1107,10 +1139,7 @@ class RawFile:
                 intensities = self._numpy_array_from_net(centroid_stream.Intensities)
 
                 charges = None
-                if (
-                    hasattr(centroid_stream, "Charges")
-                    and centroid_stream.Charges is not None
-                ):
+                if hasattr(centroid_stream, "Charges") and centroid_stream.Charges is not None:
                     charges = self._numpy_array_from_net(centroid_stream.Charges)
 
                 return Spectrum(
@@ -1169,9 +1198,7 @@ class RawFile:
         if isinstance(net_array, System.Array):
             # For .NET 8, use a list comprehension approach
             # which works more reliably across versions
-            return np.array(
-                [float(net_array[i]) for i in range(len(net_array))], dtype=np.float64
-            )
+            return np.array([float(net_array[i]) for i in range(len(net_array))], dtype=np.float64)
 
         # Fallback: try direct conversion
         return np.array(net_array, dtype=np.float64)
@@ -1208,9 +1235,7 @@ class RawFile:
             settings = _chromatogram_settings_class(net_trace_type)
 
             # Get chromatogram data
-            data = self._raw_file.GetChromatogramData(
-                [settings], int(start_scan), int(end_scan)
-            )
+            data = self._raw_file.GetChromatogramData([settings], int(start_scan), int(end_scan))
 
             # Extract signal
             traces = _chromatogram_signal_class.FromChromatogramData(data)
@@ -1296,9 +1321,7 @@ class RawFile:
             )
         return result
 
-    def get_inclusion_exclusion_list(
-        self, mass_tolerance: float = 1e-5
-    ) -> list[InclusionListItem]:
+    def get_inclusion_exclusion_list(self, mass_tolerance: float = 1e-5) -> list[InclusionListItem]:
         """Get inclusion/exclusion list from instrument method.
 
         Note: This is a simplified implementation that parses the

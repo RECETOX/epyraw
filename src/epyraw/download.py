@@ -4,8 +4,6 @@ This module provides functionality to download the required .NET assemblies
 from the Thermo Fisher RawFileReader GitHub repository.
 """
 
-import shutil
-import tempfile
 from pathlib import Path
 
 try:
