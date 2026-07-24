@@ -411,3 +411,230 @@ class StatusLogField:
     def __repr__(self) -> str:
         """Return a string representation."""
         return f"StatusLogField({self.label})"
+
+
+@dataclass
+class ScanHeader:
+    """Detailed scan header information.
+
+    Provides metadata about a specific scan including MS level, precursor info,
+    and acquisition parameters.
+    """
+
+    scan_number: int = 0
+    """The scan number."""
+
+    ms_level: int = 1
+    """MS level (1 for full scan, 2 for MS/MS, etc.)."""
+
+    precursor_scan_num: int = 0
+    """Precursor scan number for MSn scans."""
+
+    scan_type: str = ""
+    """Type of scan (e.g., 'Full', 'SIM', 'ProductIon')."""
+
+    instrument_model: str = ""
+    """Instrument model that acquired the scan."""
+
+    number_of_ions: int = 0
+    """Number of ions/peaks detected."""
+
+    isolation_width: float = 0.0
+    """Isolation width in Da."""
+
+    collision_energy: float = 0.0
+    """Collision energy in eV."""
+
+    trigger_time: float = 0.0
+    """Trigger time in minutes."""
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return (
+            f"ScanHeader(scan={self.scan_number}, ms_level={self.ms_level}, "
+            f"type={self.scan_type})"
+        )
+
+
+@dataclass
+class Reaction:
+    """Reaction information for MSn scans.
+
+    Contains precursor mass, collision energy, and isolation width
+    for a single reaction step.
+    """
+
+    precursor_mass: float = 0.0
+    """Precursor mass in Da."""
+
+    collision_energy: float = 0.0
+    """Collision energy in eV."""
+
+    isolation_width: float = 0.0
+    """Isolation width in Da."""
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return (
+            f"Reaction(precursor={self.precursor_mass:.4f} Da, "
+            f"CE={self.collision_energy:.1f} eV)"
+        )
+
+
+@dataclass
+class ScanEvent:
+    """Scan event information including reactions.
+
+    Provides access to reaction data for MSn scans, including
+    mass analyzer settings and reaction parameters.
+    """
+
+    mass_analyzer: int = 0
+    """Mass analyzer type identifier."""
+
+    reactions: list[Reaction] = field(default_factory=list)
+    """List of reactions for this scan event."""
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return f"ScanEvent(analyzer={self.mass_analyzer}, reactions={len(self.reactions)})"
+
+
+@dataclass
+class MassOptions:
+    """Options for mass precision operations like scan averaging.
+
+    Configures tolerance settings for matching peaks across spectra.
+    """
+
+    tolerance: float = 5.0
+    """Tolerance value."""
+
+    tolerance_units: int = 1
+    """Units for tolerance (0=Daltons, 1=ppm). Matches ToleranceUnits enum."""
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        unit_str = "ppm" if self.tolerance_units == 1 else "Da"
+        return f"MassOptions(tolerance={self.tolerance} {unit_str})"
+
+
+@dataclass
+class ScanStats:
+    """Statistics for a specific scan.
+
+    Provides information about scan type and data quality.
+    """
+
+    is_centroid_scan: bool = False
+    """Whether the scan is centroid data."""
+
+    spectrum_packet_type: int = 0
+    """Type of spectrum packet (SpectrumPacketType enum value)."""
+
+    mass_count: int = 0
+    """Number of masses/peaks in the scan."""
+
+    total_intensity: float = 0.0
+    """Sum of all intensities."""
+
+    max_intensity: float = 0.0
+    """Maximum intensity value."""
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return (
+            f"ScanStats(centroid={self.is_centroid_scan}, "
+            f"type={self.spectrum_packet_type}, peaks={self.mass_count})"
+        )
+
+
+@dataclass
+class ScanDependentDetail:
+    """Detail about a dependent scan.
+
+    Describes a child scan triggered by a precursor scan.
+    """
+
+    scan_number: int = 0
+    """The dependent scan number."""
+
+    scan_type: str = ""
+    """Type of the dependent scan."""
+
+    ms_level: int = 0
+    """MS level of the dependent scan."""
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return f"ScanDependentDetail(scan={self.scan_number}, type={self.scan_type})"
+
+
+@dataclass
+class ScanDependents:
+    """Scans triggered by a precursor scan.
+
+    Contains information about all dependent (child) scans
+    associated with a precursor scan.
+    """
+
+    raw_file_instrument_type: str = ""
+    """Instrument type that generated the scans."""
+
+    scan_dependent_details: list[ScanDependentDetail] = field(default_factory=list)
+    """List of dependent scan details."""
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return f"ScanDependents(instrument={self.raw_file_instrument_type}, count={len(self.scan_dependent_details)})"
+
+
+@dataclass
+class AutoSamplerInformation:
+    """Autosampler tray configuration.
+
+    Contains information about the autosampler tray and vial positions.
+    """
+
+    tray_index: int = -1
+    """Tray index (0-based)."""
+
+    vial_index: int = -1
+    """Vial index within the tray."""
+
+    vials_per_tray_x: int = -1
+    """Number of vial positions along X axis."""
+
+    vials_per_tray_y: int = -1
+    """Number of vial positions along Y axis."""
+
+    tray_shape: "TrayShape | None" = None
+    """Tray shape as TrayShape enum (or None if unknown)."""
+
+    tray_name: str = ""
+    """Tray name/description."""
+
+    @classmethod
+    def _from_raw(cls, tray_index: int, vial_index: int, vials_per_tray_x: int,
+                  vials_per_tray_y: int, tray_shape_int: int, tray_name: str):
+        """Create from raw integer values (internal use)."""
+        from .enums import TrayShape
+
+        try:
+            tray_shape = TrayShape(tray_shape_int)
+        except ValueError:
+            tray_shape = None
+
+        return cls(
+            tray_index=tray_index,
+            vial_index=vial_index,
+            vials_per_tray_x=vials_per_tray_x,
+            vials_per_tray_y=vials_per_tray_y,
+            tray_shape=tray_shape,
+            tray_name=tray_name or "",
+        )
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        shape_str = self.tray_shape.name if self.tray_shape is not None else "None"
+        return f"AutoSamplerInformation(tray={self.tray_index}, vial={self.vial_index}, shape={shape_str})"

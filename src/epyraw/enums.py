@@ -121,6 +121,88 @@ class GenericDataTypes(IntEnum):
     Int64 = 5
 
 
+class SpectrumPacketType(IntEnum):
+    """Type of spectrum data packet.
+
+    Values match the Thermo RawFileReader .NET SpectrumPacketType enum.
+    """
+
+    FtCentroid = 0
+    """Fourier transform centroid data."""
+
+    FtProfile = 1
+    """Fourier transform profile data."""
+
+    QuadrupoleCentroid = 2
+    """Quadrupole centroid data."""
+
+    QuadrupoleProfile = 3
+    """Quadrupole profile data."""
+
+
+class ScanTypeEnum(IntEnum):
+    """Type of scan performed.
+
+    Values match common Thermo instrument scan types.
+    """
+
+    Full = 0
+    """Full scan."""
+
+    SIM = 1
+    """Selected ion monitoring (SIM) scan."""
+
+    ProductIon = 2
+    """Product ion scan."""
+
+    DataDependent = 3
+    """Data-dependent scan."""
+
+    TopN = 4
+    """Top N scan."""
+
+
+class TrayShape(IntEnum):
+    """Autosampler tray shape.
+
+    Values match the Thermo RawFileReader .NET TrayShape enum.
+    """
+
+    Rectangular = 0
+    """Rectangular tray layout."""
+
+    Circular = 1
+    """Circular tray layout."""
+
+    StaggeredOdd = 2
+    """Staggered layout for odd rows."""
+
+    StaggeredEven = 3
+    """Staggered layout for even rows."""
+
+    Unknown = 4
+    """Unknown tray shape."""
+
+    Invalid = 5
+    """Invalid tray shape."""
+
+
+class BarcodeStatusType(IntEnum):
+    """Barcode read status.
+
+    Values match the Thermo RawFileReader .NET BarcodeStatusType enum.
+    """
+
+    NotRead = 0
+    """Barcode was not read."""
+
+    Read = 1
+    """Barcode was successfully read."""
+
+    ReadFailed = 2
+    """Barcode read failed."""
+
+
 # Type aliases for clarity
 TraceTypeName = str
 """Type alias for trace type names."""

@@ -13,16 +13,19 @@ Example:
 """
 
 from .download import check_runtimes_present, download_runtimes, get_default_runtime_path
-from .enums import (DetectorType, Device, IonizationMode, MassAnalyzerType,
-                    MSOrderType, PolarityType, SampleType, ToleranceUnits,
+from .enums import (BarcodeStatusType, DetectorType, Device, IonizationMode,
+                    MassAnalyzerType, MSOrderType, PolarityType, SampleType,
+                    ScanTypeEnum, SpectrumPacketType, TrayShape, ToleranceUnits,
                     TraceType)
 from .exceptions import (AssemblyLoadError, InitializationError,
                          InstrumentNotSelectedError, InvalidScanNumberError,
                          RawFileCorruptedError, RawFileNotFoundError,
                          RawFileOpenError, ThermoRawFileError)
-from .models import (Chromatogram, FileHeader, InclusionListItem,
-                     InstrumentData, RunHeader, SampleInformation, ScanFilter,
-                     Spectrum, StatusLogField)
+from .models import (AutoSamplerInformation, Chromatogram, FileHeader,
+                    InclusionListItem, InstrumentData, MassOptions, Reaction,
+                    RunHeader, SampleInformation, ScanDependentDetail,
+                    ScanDependents, ScanEvent, ScanHeader, ScanStats, ScanFilter,
+                    Spectrum, StatusLogField)
 from .raw_file import RawFile, set_runtime
 
 __version__ = "0.1.0"
@@ -45,6 +48,10 @@ __all__ = [
     "SampleType",
     "ToleranceUnits",
     "TraceType",
+    "SpectrumPacketType",
+    "ScanTypeEnum",
+    "TrayShape",
+    "BarcodeStatusType",
     # Data models
     "Chromatogram",
     "FileHeader",
@@ -55,6 +62,14 @@ __all__ = [
     "ScanFilter",
     "Spectrum",
     "StatusLogField",
+    "ScanHeader",
+    "ScanEvent",
+    "Reaction",
+    "MassOptions",
+    "ScanStats",
+    "ScanDependents",
+    "ScanDependentDetail",
+    "AutoSamplerInformation",
     # Exceptions
     "AssemblyLoadError",
     "InitializationError",
