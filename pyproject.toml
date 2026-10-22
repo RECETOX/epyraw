@@ -45,6 +45,10 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Start lenient, tighten later
 
+[[tool.mypy.overrides]]
+module = ["pythonnet", "clr", "System", "System.*", "ThermoFisher.*", "pandas", "requests"]
+ignore_missing_imports = true
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

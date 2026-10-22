@@ -5,9 +5,13 @@ spectrum, chromatogram, and other mass spectrometry data.
 """
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from .enums import TrayShape
 
 
 @dataclass
@@ -154,7 +158,7 @@ class Chromatogram:
         if self.num_points < 2:
             return 0.0
         # Simple trapezoidal integration
-        return float(np.trapz(self.intensities, self.times))
+        return float(np.sum(np.diff(self.times) * (self.intensities[1:] + self.intensities[:-1]) / 2.0))
 
     def to_pandas(self) -> pd.DataFrame:
         """Convert to pandas DataFrame.
@@ -600,7 +604,7 @@ class AutoSamplerInformation:
     vials_per_tray_y: int = -1
     """Number of vial positions along Y axis."""
 
-    tray_shape: object = None  # TrayShape | None
+    tray_shape: "TrayShape | None" = None
     """Tray shape as TrayShape enum (or None if unknown)."""
 
     tray_name: str = ""
@@ -615,7 +619,7 @@ class AutoSamplerInformation:
         vials_per_tray_y: int,
         tray_shape_int: int,
         tray_name: str,
-    ):
+    ) -> "AutoSamplerInformation":
         """Create from raw integer values (internal use)."""
         from .enums import TrayShape
 
