@@ -52,6 +52,7 @@ _chromatogram_signal_class: Any = None
 _scan_class: Any = None
 _filter_class: Any = None
 _device_class: Any = None
+_net_trace_type_class: Any = None
 _assembly_path: Path | None = None
 
 
@@ -299,7 +300,7 @@ class RawFile:
             InitializationError: If .NET runtime fails to initialize
         """
         self._filepath = str(filepath)
-        self._raw_file = None
+        self._raw_file: Any = None
         self._selected_device: Device | None = None
         self._selected_instance: int = 0
 
@@ -837,7 +838,7 @@ class RawFile:
 
             # Use AverageScansInScanRange method
             avg_scan = self._raw_file.AverageScansInScanRange(
-                first_scan, last_scan, scan_filter.ToString(), options
+                first_scan, last_scan, scan_filter.filter_string, options
             )
 
             # Extract masses and intensities from averaged scan

@@ -68,7 +68,7 @@ def download_runtimes(
     # Create target directory
     target_path.mkdir(parents=True, exist_ok=True)
 
-    base_url = RAW_FILE_READER_URLS["base_url"]
+    base_url = str(RAW_FILE_READER_URLS["base_url"])
     files = RAW_FILE_READER_URLS["files"]
 
     downloaded = []
