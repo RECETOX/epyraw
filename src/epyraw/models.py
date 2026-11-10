@@ -158,7 +158,9 @@ class Chromatogram:
         if self.num_points < 2:
             return 0.0
         # Simple trapezoidal integration
-        return float(np.sum(np.diff(self.times) * (self.intensities[1:] + self.intensities[:-1]) / 2.0))
+        return float(
+            np.sum(np.diff(self.times) * (self.intensities[1:] + self.intensities[:-1]) / 2.0)
+        )
 
     def to_pandas(self) -> pd.DataFrame:
         """Convert to pandas DataFrame.
