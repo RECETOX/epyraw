@@ -414,10 +414,7 @@ class RawFile:
         streams: list[InstrumentStream] = []
 
         for i in range(int(self._raw_file.InstrumentCount)):
-            try:
-                raw_device = int(self._raw_file.GetInstrumentType(i))
-            except Exception:  # noqa: BLE001 - a bad index must not break the listing
-                continue
+            raw_device = int(self._raw_file.GetInstrumentType(i))
 
             seen[raw_device] = seen.get(raw_device, 0) + 1
             instance = seen[raw_device]
@@ -436,13 +433,7 @@ class RawFile:
         # when the counts line up exactly. Otherwise the names would be
         # attributed to the wrong stream.
         if streams and self.has_instrument_method:
-            try:
-                names = [
-                    str(n)
-                    for n in self._raw_file.GetAllInstrumentFriendlyNamesFromInstrumentMethod()
-                ]
-            except Exception:  # noqa: BLE001 - names are optional
-                names = []
+            names = self.get_all_instrument_friendly_names_from_method()
             if len(names) == len(streams):
                 for stream, name in zip(streams, names, strict=True):
                     stream.name = name
