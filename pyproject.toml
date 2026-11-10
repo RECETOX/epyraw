@@ -45,7 +45,7 @@ python_files = ["test_*.py"]
 python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false  # Start lenient, tighten later
+disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = ["pythonnet", "clr", "System", "System.*", "ThermoFisher.*"]
