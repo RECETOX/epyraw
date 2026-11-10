@@ -15,6 +15,7 @@ from epyraw import (
 )
 from epyraw.models import (
     AutoSamplerInformation,
+    InstrumentStream,
     MassOptions,
     Reaction,
     ScanDependentDetail,
@@ -400,6 +401,71 @@ class TestHasInstrumentMethod:
 
         # Accessing after close should return False
         assert rf.has_instrument_method is False
+
+
+class TestInstrumentStreams:
+    """Tests for the instrument_streams property.
+
+    A raw file can hold several streams, and the library uses two different
+    index bases: GetInstrumentType() is 0-based over all streams while
+    SelectInstrument() takes a 1-based instance counted per device type.
+    instrument_streams exists so callers never have to mix them.
+    """
+
+    def test_instrument_streams_returns_one_per_stream(self, raw_file):
+        """One InstrumentStream is returned per stream in the file."""
+        streams = raw_file.instrument_streams
+
+        assert isinstance(streams, list)
+        assert len(streams) == raw_file.instrument_count
+        assert all(isinstance(s, InstrumentStream) for s in streams)
+
+    def test_instrument_streams_device_types_are_python_enums(self, raw_file):
+        """device_type is an epyraw Device, not the underlying .NET enum."""
+        for stream in raw_file.instrument_streams:
+            assert isinstance(stream.device_type, Device)
+
+    def test_instrument_streams_index_is_usable_by_select_instrument(self, raw_file):
+        """Every reported index can be passed straight to select_instrument.
+
+        This is the regression guard: the 0-based GetInstrumentType() index
+        would raise ArgumentException on a single-stream file, so a pass here
+        proves the bases are not being conflated.
+        """
+        streams = raw_file.instrument_streams
+        assert streams, "sample.raw should expose at least one stream"
+
+        for stream in streams:
+            raw_file.select_instrument(stream.device_type, stream.index)
+            assert raw_file.get_instrument_data().name != ""
+
+    def test_instrument_streams_index_starts_at_one(self, raw_file):
+        """Instance numbers are 1-based, so the first stream of a type is 1."""
+        streams = raw_file.instrument_streams
+        first_per_device: dict[Device, int] = {}
+        for stream in streams:
+            first_per_device.setdefault(stream.device_type, stream.index)
+
+        assert all(index == 1 for index in first_per_device.values())
+
+    def test_instrument_streams_indexes_count_per_device_type(self, raw_file):
+        """Repeated device types get consecutive 1-based numbers."""
+        streams = raw_file.instrument_streams
+        per_device: dict[Device, list[int]] = {}
+        for stream in streams:
+            per_device.setdefault(stream.device_type, []).append(stream.index)
+
+        for indexes in per_device.values():
+            assert indexes == list(range(1, len(indexes) + 1))
+
+    def test_instrument_streams_closed_file(self, sample_raw_file):
+        """instrument_streams is empty once the file is closed."""
+        from epyraw import RawFile
+
+        with RawFile(str(sample_raw_file)) as rf:
+            assert rf.instrument_streams
+
+        assert rf.instrument_streams == []
 
 
 class TestAutoSamplerInformationProperty:

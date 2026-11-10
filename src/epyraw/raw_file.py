@@ -28,6 +28,7 @@ from .models import (
     FileHeader,
     InclusionListItem,
     InstrumentData,
+    InstrumentStream,
     MassOptions,
     Reaction,
     RunHeader,
@@ -380,6 +381,73 @@ class RawFile:
         return int(self._raw_file.InstrumentCount)
 
     @property
+    def instrument_streams(self) -> list[InstrumentStream]:
+        """List every instrument stream in the file, in file order.
+
+        A raw file can carry more than one stream - typically the mass
+        spectrometer plus an analog or UV channel written during the same
+        acquisition. This returns one :class:`InstrumentStream` per stream,
+        with the index that :meth:`select_instrument` expects, so callers
+        never have to mix the library's two index bases:
+
+        - ``GetInstrumentType(i)`` is 0-based over all streams.
+        - ``SelectInstrument(device, instance)`` is 1-based, per device type.
+
+        Returns:
+            List of :class:`InstrumentStream` objects, empty when no file is
+            open or the file contains no streams.
+
+        Example:
+            >>> with RawFile("data.raw") as rf:
+            ...     for stream in rf.instrument_streams:
+            ...         rf.select_instrument(stream.device_type, stream.index)
+        """
+        if self._raw_file is None:
+            return []
+
+        # GetInstrumentType() indexes all streams from 0, while
+        # SelectInstrument() wants a 1-based instance counted within the
+        # stream's own device type, so the instance is tracked per type.
+        seen: dict[int, int] = {}
+        streams: list[InstrumentStream] = []
+
+        for i in range(int(self._raw_file.InstrumentCount)):
+            try:
+                raw_device = int(self._raw_file.GetInstrumentType(i))
+            except Exception:  # noqa: BLE001 - a bad index must not break the listing
+                continue
+
+            seen[raw_device] = seen.get(raw_device, 0) + 1
+            instance = seen[raw_device]
+
+            try:
+                device = Device(raw_device)
+            except ValueError:
+                # A device type this wrapper does not model yet. The stream
+                # still counts towards its type's 1-based numbering above.
+                continue
+
+            streams.append(InstrumentStream(index=instance, device_type=device, name=""))
+
+        # The instrument method lists names per method entry (often the MS
+        # plus autosampler channels), not per stream, so it can only be used
+        # when the counts line up exactly. Otherwise the names would be
+        # attributed to the wrong stream.
+        if streams and self.has_instrument_method:
+            try:
+                names = [
+                    str(n)
+                    for n in self._raw_file.GetAllInstrumentFriendlyNamesFromInstrumentMethod()
+                ]
+            except Exception:  # noqa: BLE001 - names are optional
+                names = []
+            if len(names) == len(streams):
+                for stream, name in zip(streams, names, strict=True):
+                    stream.name = name
+
+        return streams
+
+    @property
     def file_header(self) -> FileHeader:
         """Get file header information."""
         if self._raw_file is None:
@@ -533,10 +601,20 @@ class RawFile:
 
         Args:
             device: Instrument type (Device.MS, Device.Analog, etc.)
-            instance: Instance number (1-based)
+            instance: Instance number of that device type, **1-based**.
+                ``instance=1`` is the first stream of ``device`` in the file.
+                Note that the underlying ``GetInstrumentType()`` is 0-based
+                over all streams, so its indices are not interchangeable
+                with these instance numbers; use :attr:`instrument_streams`
+                to get values that can be passed straight in here.
 
         Raises:
             InstrumentNotSelectedError: If selection fails
+
+        Example:
+            >>> with RawFile("data.raw") as rf:
+            ...     for stream in rf.instrument_streams:
+            ...         rf.select_instrument(stream.device_type, stream.index)
         """
         if self._raw_file is None:
             raise InstrumentNotSelectedError("No file is open")

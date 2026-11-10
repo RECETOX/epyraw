@@ -2,12 +2,14 @@
 
 import numpy as np
 
+from epyraw.enums import Device
 from epyraw.models import (
     AutoSamplerInformation,
     Chromatogram,
     FileHeader,
     InclusionListItem,
     InstrumentData,
+    InstrumentStream,
     MassOptions,
     Reaction,
     RunHeader,
@@ -180,6 +182,23 @@ class TestInstrumentData:
         inst = InstrumentData()
         assert inst.model == ""
         assert inst.serial_number == ""
+
+
+class TestInstrumentStream:
+    """Tests for InstrumentStream class."""
+
+    def test_instrument_stream_defaults(self):
+        """Test InstrumentStream default values."""
+        stream = InstrumentStream()
+        assert stream.index == 1
+        assert stream.device_type == Device.MS
+        assert stream.name == ""
+
+    def test_instrument_stream_repr(self):
+        """Test InstrumentStream string representation."""
+        stream = InstrumentStream(index=2, device_type=Device.Analog)
+        assert "index=2" in repr(stream)
+        assert "Analog" in repr(stream)
 
 
 class TestInclusionListItem:
