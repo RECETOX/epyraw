@@ -10,8 +10,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+# Device is a runtime import: InstrumentStream uses it as a field default, not
+# only in an annotation.
+from .enums import Device
+
 if TYPE_CHECKING:
-    from .enums import Device, TrayShape
+    from .enums import TrayShape
 
 
 @dataclass
