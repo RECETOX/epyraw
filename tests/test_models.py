@@ -125,6 +125,36 @@ class TestChromatogram:
         assert "intensity" in df.columns
         assert len(df) == 3
 
+    def test_total_ion_current_uniform_spacing(self):
+        """Test TIC as the trapezoidal integral over evenly spaced points."""
+        times = np.array([0.0, 1.0, 2.0, 3.0])
+        intensities = np.array([100.0, 500.0, 300.0, 100.0])
+
+        chrom = Chromatogram(times=times, intensities=intensities)
+
+        # (100+500)/2 + (500+300)/2 + (300+100)/2 = 300 + 400 + 200
+        assert chrom.total_ion_current == 900.0
+
+    def test_total_ion_current_uses_actual_time_spacing(self):
+        """Test TIC weights each interval by its real width, not a fixed step."""
+        times = np.array([0.0, 1.0, 3.0])
+        intensities = np.array([0.0, 10.0, 10.0])
+
+        chrom = Chromatogram(times=times, intensities=intensities)
+
+        # (1 - 0) * (0 + 10) / 2 + (3 - 1) * (10 + 10) / 2 = 5 + 20
+        assert chrom.total_ion_current == 25.0
+
+    def test_total_ion_current_needs_two_points(self):
+        """Test TIC is zero when there is nothing to integrate."""
+        assert Chromatogram().total_ion_current == 0.0
+
+        single = Chromatogram(
+            times=np.array([1.0]),
+            intensities=np.array([500.0]),
+        )
+        assert single.total_ion_current == 0.0
+
 
 class TestRunHeader:
     """Tests for RunHeader class."""

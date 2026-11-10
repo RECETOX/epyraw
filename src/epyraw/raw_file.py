@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 import numpy as np
@@ -53,6 +54,7 @@ _chromatogram_signal_class: Any = None
 _scan_class: Any = None
 _filter_class: Any = None
 _device_class: Any = None
+_net_trace_type_class: Any = None
 _assembly_path: Path | None = None
 
 
@@ -300,7 +302,7 @@ class RawFile:
             InitializationError: If .NET runtime fails to initialize
         """
         self._filepath = str(filepath)
-        self._raw_file = None
+        self._raw_file: Any = None
         self._selected_device: Device | None = None
         self._selected_instance: int = 0
 
@@ -492,13 +494,13 @@ class RawFile:
         si = self._raw_file.SampleInformation
 
         # Helper function to safely convert values with defaults
-        def safe_int(val, default=0):
+        def safe_int(val: Any, default: int = 0) -> int:
             try:
                 return int(val) if val else default
             except (ValueError, TypeError):
                 return default
 
-        def safe_float(val, default=0.0):
+        def safe_float(val: Any, default: float = 0.0) -> float:
             try:
                 return float(val) if val else default
             except (ValueError, TypeError):
@@ -915,7 +917,7 @@ class RawFile:
 
             # Use AverageScansInScanRange method
             avg_scan = self._raw_file.AverageScansInScanRange(
-                first_scan, last_scan, scan_filter.ToString(), options
+                first_scan, last_scan, scan_filter.filter_string, options
             )
 
             # Extract masses and intensities from averaged scan
@@ -1468,7 +1470,12 @@ class RawFile:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Context manager exit - ensures file is closed."""
         self.close()
 
