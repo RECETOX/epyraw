@@ -13,6 +13,26 @@ logger = logging.getLogger(__name__)
 VERBOSITY_LEVELS = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}
 
 
+class _TracebackOnlyAtDebug(logging.Filter):
+    """Strip the traceback from a record, keeping its message.
+
+    Attached to the handler the CLI installs, and only when the level is coarser
+    than ``DEBUG``: below ``-vv`` nothing can ask for a traceback, so a ``WARNING``
+    that carries ``exc_info`` must not print one unasked — the CLI instead points at
+    ``-vv`` as where to get it. Filters have to mutate, since ``logging`` discards
+    any record a filter returns.
+
+    An embedder who configured logging before calling in is untouched:
+    ``basicConfig`` then installs no handler, so no filter is attached and their
+    records keep their exceptions.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.exc_info = None
+        record.exc_text = None
+        return True
+
+
 def _configure_logging(verbosity: int) -> int:
     """Configure logging for the command line entry point.
 
@@ -26,7 +46,12 @@ def _configure_logging(verbosity: int) -> int:
         The level that was configured.
     """
     level = VERBOSITY_LEVELS.get(verbosity, logging.DEBUG)
+    root = logging.getLogger()
+    owns_logging = not root.handlers
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
+    if owns_logging and level > logging.DEBUG:
+        for handler in root.handlers:
+            handler.addFilter(_TracebackOnlyAtDebug())
     return level
 
 

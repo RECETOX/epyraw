@@ -48,18 +48,22 @@ logger = logging.getLogger(__name__)
 
 
 def _attr_or_default(obj: Any, name: str, default: Any, context: str) -> Any:
-    """Read an attribute of a .NET object, logging when it is not there.
+    """Read an attribute of a .NET object exactly once, logging when it is not there.
 
     RawFileReader interfaces differ between library versions, so reading a field
     is always a "may be absent" operation. Returning ``default`` silently makes an
     absent field indistinguishable from one that legitimately holds that value, so
     the fallback is recorded at DEBUG.
-    """
-    if hasattr(obj, name):
-        return getattr(obj, name)
 
-    logger.debug("%s: %s is not available, using %r", context, name, default)
-    return default
+    The attribute is read through a single ``getattr``, because a .NET property
+    evaluates on every access: probing with ``hasattr`` first would marshal across
+    the runtime twice for every field that is present.
+    """
+    try:
+        return getattr(obj, name)
+    except AttributeError:
+        logger.debug("%s: %s is not available, using %r", context, name, default)
+        return default
 
 
 def _safe_int(val: Any, default: int = 0, context: str = "value") -> int:

@@ -4,19 +4,28 @@ The package itself never configures logging, so every test opts in explicitly wi
 ``caplog.at_level``.
 """
 
+import io
 import logging
 import subprocess
 import sys
 
 import pytest
 
-from epyraw import AutoSamplerInformation, cli
+from epyraw import AutoSamplerInformation, cli, download
 from epyraw.cli import _build_parser, _configure_logging
-from epyraw.raw_file import RawFile, _safe_float, _safe_int
+from epyraw.raw_file import RawFile, _attr_or_default, _safe_float, _safe_int
 
 
 def _download_fails(*args: object, **kwargs: object) -> None:
     raise RuntimeError("simulated download failure")
+
+
+class _RequestsFail:
+    """Stand-in for the ``requests`` module, so the real download loop runs and fails."""
+
+    @staticmethod
+    def get(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("simulated network failure")
 
 
 class _DisposeRaises:
@@ -55,6 +64,50 @@ class _FakeRawForScanEvent:
 
     def GetScanEventForScanNumber(self, scan_number: int) -> object:
         return self._scan_event
+
+
+class _CountingScanStats:
+    """Stand-in for the .NET scan-stats object, counting its own property reads.
+
+    A .NET property marshals across the runtime on every access, so the count is the
+    cost of the read path, not an implementation detail of the test.
+    """
+
+    def __init__(self) -> None:
+        self.reads = 0
+
+    @property
+    def IsCentroidScan(self) -> bool:
+        self.reads += 1
+        return True
+
+    @property
+    def SpectrumPacketType(self) -> int:
+        self.reads += 1
+        return 0
+
+    @property
+    def PacketCount(self) -> int:
+        self.reads += 1
+        return 3
+
+    @property
+    def TIC(self) -> float:
+        self.reads += 1
+        return 100.0
+
+    @property
+    def BasePeakIntensity(self) -> float:
+        self.reads += 1
+        return 50.0
+
+
+class _FakeRawForStats:
+    def __init__(self, stats: object) -> None:
+        self._stats = stats
+
+    def GetScanStatsForScanNumber(self, scan_number: int) -> object:
+        return self._stats
 
 
 class _FakeRawForMethod:
@@ -202,6 +255,31 @@ class TestFallbacksAreLogged:
         assert rf._raw_file is None
 
 
+class TestObservingCostsNothing:
+    """Logging a fallback must not double the interop calls the fallback came from."""
+
+    def test_present_attribute_is_read_once(self, caplog):
+        """Probing with hasattr before reading would marshal every present field twice."""
+        stats = _CountingScanStats()
+        with caplog.at_level(logging.DEBUG, logger="epyraw.raw_file"):
+            assert _attr_or_default(stats, "TIC", 0.0, "stats") == 100.0
+        assert stats.reads == 1
+        assert caplog.records == []
+
+    def test_absent_attribute_logs_the_default(self, caplog):
+        stats = _CountingScanStats()
+        with caplog.at_level(logging.DEBUG, logger="epyraw.raw_file"):
+            assert _attr_or_default(stats, "NotInThisVersion", 0.0, "stats") == 0.0
+        assert "NotInThisVersion is not available, using 0.0" in caplog.text
+
+    def test_scan_stats_read_each_field_once(self):
+        """The site that regressed: five fields must cost five reads, not ten."""
+        stats = _CountingScanStats()
+        rf = _bare_raw_file(_FakeRawForStats(stats))
+        assert rf.get_scan_stats(1).mass_count == 3
+        assert stats.reads == 5
+
+
 class TestCliVerbosity:
     """-v / -vv are how a CLI user gets at any of the above."""
 
@@ -273,3 +351,67 @@ class TestCliVerbosity:
         assert code == 1
         assert "Traceback (most recent call last)" in err
         assert "Re-run with -vv" not in err
+
+    def _render_real_download_failure(self, monkeypatch, tmp_path, argv: list[str]) -> str:
+        """Let the real downloader fail, and return what the CLI's handler rendered.
+
+        Only ``requests`` is replaced, so the failure comes out of ``download_runtimes``
+        itself — a WARNING carrying ``exc_info`` — rather than from a stubbed function.
+        """
+        root = logging.getLogger()
+        saved_handlers, saved_level = root.handlers[:], root.level
+        root.handlers.clear()  # basicConfig only configures an unconfigured root
+        rendered = io.StringIO()
+        monkeypatch.setattr(download, "requests", _RequestsFail())
+        try:
+            verbosity = _build_parser().parse_args(argv).verbose
+            cli._configure_logging(verbosity)
+            for handler in root.handlers:
+                if isinstance(handler, logging.StreamHandler):
+                    handler.setStream(rendered)
+            with pytest.raises(RuntimeError, match="simulated network failure"):
+                download.download_runtimes(tmp_path, progress=False)
+        finally:
+            root.handlers[:] = saved_handlers
+            root.setLevel(saved_level)
+        return rendered.getvalue()
+
+    def test_download_failure_prints_no_traceback_without_vv(self, monkeypatch, tmp_path):
+        """The warning is worth printing at any verbosity; its traceback is not."""
+        out = self._render_real_download_failure(monkeypatch, tmp_path, ["download"])
+        assert "Failed to download OpenMcdf.dll" in out
+        assert "Traceback" not in out
+
+    def test_download_failure_prints_no_traceback_with_one_v(self, monkeypatch, tmp_path):
+        out = self._render_real_download_failure(monkeypatch, tmp_path, ["download", "-v"])
+        assert "Traceback" not in out
+
+    def test_download_failure_prints_a_traceback_with_vv(self, monkeypatch, tmp_path):
+        out = self._render_real_download_failure(monkeypatch, tmp_path, ["download", "-vv"])
+        assert "Failed to download OpenMcdf.dll" in out
+        assert "Traceback (most recent call last)" in out
+
+    def test_an_embedder_keeps_the_exception_on_the_record(self, monkeypatch, tmp_path):
+        """Suppressing the traceback is the CLI's choice, not something done to callers."""
+        seen: list[logging.LogRecord] = []
+
+        class _Collect(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                seen.append(record)
+
+        root = logging.getLogger()
+        saved_handlers, saved_level = root.handlers[:], root.level
+        root.handlers[:] = [_Collect()]  # logging is already configured, as by an embedder
+        root.setLevel(logging.WARNING)
+        monkeypatch.setattr(download, "requests", _RequestsFail())
+        try:
+            assert cli._configure_logging(0) == logging.WARNING
+            with pytest.raises(RuntimeError, match="simulated network failure"):
+                download.download_runtimes(tmp_path, progress=False)
+        finally:
+            root.handlers[:] = saved_handlers
+            root.setLevel(saved_level)
+
+        failures = [r for r in seen if r.levelno == logging.WARNING]
+        assert failures, "the per-file failure was never logged"
+        assert all(r.exc_info is not None for r in failures)
