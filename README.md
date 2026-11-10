@@ -297,6 +297,7 @@ mypy src/epyraw
 epyraw/
 ├── pyproject.toml              # UV build configuration
 ├── README.md                   # This file
+├── CHANGELOG.md                # Release history (semantic versioning)
 ├── src/epyraw/
 │   ├── __init__.py             # Public API exports
 │   ├── enums.py                # Enum types (Device, TraceType, etc.)

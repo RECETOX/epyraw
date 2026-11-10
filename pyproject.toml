@@ -17,6 +17,8 @@ dev = [
     "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
+    "pandas-stubs>=3.0.0",
+    "types-requests>=2.32.0",
 ]
 docs = [
     "mkdocs>=1.5.0",
@@ -43,7 +45,11 @@ python_files = ["test_*.py"]
 python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false  # Start lenient, tighten later
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["pythonnet", "clr", "System", "System.*", "ThermoFisher.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py312"
