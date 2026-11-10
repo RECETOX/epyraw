@@ -250,6 +250,21 @@ with RawFile("data.raw") as rf:
 
 **Note:** `set_runtime()` must be called before opening any files.
 
+## Logging
+
+The package logs degraded results through the standard `logging` module and never configures
+logging itself — no handlers, no levels, nothing printed unless you ask:
+
+```python
+import logging
+logging.basicConfig(level=logging.INFO)  # INFO: runtime chosen; DEBUG: every fallback
+```
+
+`WARNING` means a result changed (a truncated reaction list, dropped inclusion-list rows,
+averaging unavailable); `DEBUG` records each field or method that was expected but absent and
+the default used in its place. See [docs/usage.md](docs/usage.md) for the full list. The CLI
+takes the same flags: `epyraw download -v` and `-vv`.
+
 ## Examples
 
 See the `examples/` directory for more usage examples:

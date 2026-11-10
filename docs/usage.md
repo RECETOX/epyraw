@@ -187,3 +187,30 @@ with RawFile("data.raw") as rf:
     for field, value in trailer.items():
         print(f"{field}: {value}")
 ```
+
+## Logging
+
+`epyraw` reports degraded results through the standard `logging` module and never configures
+it: no handlers, no levels, nothing printed. Turn it on from your own code:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("epyraw").setLevel(logging.DEBUG)  # to see every fallback
+```
+
+What you get:
+
+| Level | Records |
+|-------|---------|
+| `INFO` | which .NET runtime was chosen; the download summary |
+| `DEBUG` | every field or method that was expected but absent, and the default used instead |
+| `WARNING` | results that changed: truncated reaction list, dropped inclusion-list rows, averaging unavailable, unrecognised tray shape |
+
+Where a value was substituted rather than read, the method's docstring says so — the
+tolerance returned by `default_mass_options()` is the library's own 5 ppm, not one reported
+by the file.
+
+The `epyraw` CLI owns this decision for itself: `epyraw download -v` logs progress, `-vv`
+logs at `DEBUG` including tracebacks.

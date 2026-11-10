@@ -12,6 +12,8 @@ Example:
     ...     print(f"Peaks: {spectrum.num_peaks}")
 """
 
+import logging
+
 from .download import check_runtimes_present, download_runtimes, get_default_runtime_path
 from .enums import (
     BarcodeStatusType,
@@ -58,6 +60,12 @@ from .models import (
     StatusLogField,
 )
 from .raw_file import RawFile, set_runtime
+
+# A library must not configure handlers or levels — that is the application's
+# decision. A NullHandler on the package logger stops logging's last-resort
+# handler from writing WARNING-and-above records to stderr when the embedder has
+# not configured logging itself.
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __version__ = "0.1.0"
 
