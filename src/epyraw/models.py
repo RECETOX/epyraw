@@ -10,6 +10,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+# Device is a runtime import: InstrumentStream uses it as a field default, not
+# only in an annotation.
+from .enums import Device
+
 if TYPE_CHECKING:
     from .enums import TrayShape
 
@@ -371,6 +375,46 @@ class InstrumentData:
     def __repr__(self) -> str:
         """Return a string representation."""
         return f"InstrumentData(model={self.model}, serial={self.serial_number})"
+
+
+@dataclass
+class InstrumentStream:
+    """One instrument stream present in a raw file.
+
+    A raw file can hold several streams - typically one mass spectrometer
+    plus an analog or UV channel written by the same acquisition. The
+    streams are listed in file order, which is the order the underlying
+    ``GetInstrumentType()`` reports them in.
+
+    The two index bases used by the RawFileReader library differ, so this
+    object carries the value that ``select_instrument()`` expects rather
+    than the raw one:
+
+    - ``GetInstrumentType(index)`` is **0-based** over all streams.
+    - ``SelectInstrument(device, instance)`` takes a **1-based** instance
+      number, counted *within* that device type.
+
+    ``index`` here is the 1-based, per-device number, ready to pass to
+    :meth:`RawFile.select_instrument`.
+
+    Example:
+        >>> with RawFile("data.raw") as rf:
+        ...     for stream in rf.instrument_streams:
+        ...         rf.select_instrument(stream.device_type, stream.index)
+    """
+
+    index: int = 1
+    """1-based instance number, as expected by :meth:`RawFile.select_instrument`."""
+
+    device_type: Device = Device.MS
+    """Device type of this stream, from :class:`Device`."""
+
+    name: str = ""
+    """Instrument name, when the file records one name per stream."""
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return f"InstrumentStream(index={self.index}, device={self.device_type.name})"
 
 
 @dataclass
