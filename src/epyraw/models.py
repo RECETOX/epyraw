@@ -4,6 +4,7 @@ These classes provide Pythonic data structures for representing
 spectrum, chromatogram, and other mass spectrometry data.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,8 @@ import pandas as pd
 
 if TYPE_CHECKING:
     from .enums import TrayShape
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -622,12 +625,20 @@ class AutoSamplerInformation:
         tray_shape_int: int,
         tray_name: str,
     ) -> "AutoSamplerInformation":
-        """Create from raw integer values (internal use)."""
+        """Create from raw integer values (internal use).
+
+        An unrecognised ``tray_shape_int`` leaves ``tray_shape`` as ``None``, which
+        is indistinguishable from a sampler that reported no shape at all; that case
+        is logged at WARNING.
+        """
         from .enums import TrayShape
 
         try:
             tray_shape = TrayShape(tray_shape_int)
         except ValueError:
+            logger.warning(
+                "Unrecognised tray shape value %s; leaving tray_shape as None", tray_shape_int
+            )
             tray_shape = None
 
         return cls(

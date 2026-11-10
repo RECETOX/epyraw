@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from types import TracebackType
@@ -42,6 +43,52 @@ from .models import (
     Spectrum,
     StatusLogField,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _attr_or_default(obj: Any, name: str, default: Any, context: str) -> Any:
+    """Read an attribute of a .NET object, logging when it is not there.
+
+    RawFileReader interfaces differ between library versions, so reading a field
+    is always a "may be absent" operation. Returning ``default`` silently makes an
+    absent field indistinguishable from one that legitimately holds that value, so
+    the fallback is recorded at DEBUG.
+    """
+    if hasattr(obj, name):
+        return getattr(obj, name)
+
+    logger.debug("%s: %s is not available, using %r", context, name, default)
+    return default
+
+
+def _safe_int(val: Any, default: int = 0, context: str = "value") -> int:
+    """Convert to int, falling back to ``default``.
+
+    A fallback is logged at DEBUG, because the returned default is otherwise
+    indistinguishable from a genuine zero.
+    """
+    if val is None:
+        return default
+
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        logger.debug("Could not convert %s=%r to int, using %r", context, val, default)
+        return default
+
+
+def _safe_float(val: Any, default: float = 0.0, context: str = "value") -> float:
+    """Convert to float, falling back to ``default`` (see :func:`_safe_int`)."""
+    if val is None:
+        return default
+
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        logger.debug("Could not convert %s=%r to float, using %r", context, val, default)
+        return default
+
 
 # Module-level state for .NET initialization
 _dotnet_initialized: bool = False
@@ -190,8 +237,10 @@ def _initialize_dotnet(runtime: str | None = None) -> None:
         runtime_order = ["coreclr", "mono"]
 
     last_error: Exception | None = None
+    chosen_runtime: str | None = None
 
     for rt in runtime_order:
+        logger.debug("Trying the .NET runtime %s", rt)
         try:
             from pythonnet import set_runtime as set_pythonnet_runtime
 
@@ -200,15 +249,21 @@ def _initialize_dotnet(runtime: str | None = None) -> None:
             import clr
 
             # Success! clr imported with the configured runtime
+            chosen_runtime = rt
             break
         except Exception as e:
             last_error = e
+            logger.debug("The .NET runtime %s is not usable: %s", rt, e)
             continue
     else:
         # All runtime attempts failed
         raise InitializationError(
             f"Failed to initialize .NET runtime. Last error: {last_error}"
         ) from last_error
+
+    # Which runtime won is invisible from the outside otherwise, and it changes
+    # behaviour for the whole process.
+    logger.info("Initialized the .NET runtime %s", chosen_runtime)
 
     # Get assembly path - check both package location and runtimes directory
     assembly_path = _get_assembly_path()
@@ -425,29 +480,16 @@ class RawFile:
 
         si = self._raw_file.SampleInformation
 
-        # Helper function to safely convert values with defaults
-        def safe_int(val: Any, default: int = 0) -> int:
-            try:
-                return int(val) if val else default
-            except (ValueError, TypeError):
-                return default
-
-        def safe_float(val: Any, default: float = 0.0) -> float:
-            try:
-                return float(val) if val else default
-            except (ValueError, TypeError):
-                return default
-
         return SampleInformation(
             sample_name=str(si.SampleName) if si.SampleName else "",
             sample_id=str(si.SampleId) if si.SampleId else "",
             sample_type=int(si.SampleType),
             comment=str(si.Comment) if si.Comment else "",
-            vial=safe_int(si.Vial),
-            sample_volume=safe_float(si.SampleVolume),
-            injection_volume=safe_float(si.InjectionVolume),
-            row_number=safe_int(si.RowNumber),
-            dilution_factor=safe_float(si.DilutionFactor),
+            vial=_safe_int(si.Vial, context="Vial"),
+            sample_volume=_safe_float(si.SampleVolume, context="SampleVolume"),
+            injection_volume=_safe_float(si.InjectionVolume, context="InjectionVolume"),
+            row_number=_safe_int(si.RowNumber, context="RowNumber"),
+            dilution_factor=_safe_float(si.DilutionFactor, context="DilutionFactor"),
         )
 
     @property
@@ -603,6 +645,11 @@ class RawFile:
             detector_type = int(sf.DetectorType)
         elif hasattr(sf, "DetectorValue"):
             detector_type = int(sf.DetectorValue)
+        else:
+            logger.debug(
+                "Scan %s: neither DetectorType nor DetectorValue is available, using 0",
+                scan_number,
+            )
 
         return ScanFilter(
             filter_string=str(sf.ToString()),
@@ -618,6 +665,9 @@ class RawFile:
 
         Note: This method extracts available information from scan statistics
         since GetScanHeaderInfo may not be available in all library versions.
+        Fields that cannot be read keep their default (ms_level 1, trigger_time
+        0.0, ...), which is indistinguishable from a scan that genuinely has that
+        value; every such fallback is logged at DEBUG.
 
         Args:
             scan_number: The scan number to get header for.
@@ -641,6 +691,8 @@ class RawFile:
             scan_type_str = ""
             if hasattr(stats, "ScanType"):
                 scan_type_str = str(stats.ScanType) if stats.ScanType else ""
+            else:
+                logger.debug("Scan %s: ScanType is not available", scan_number)
 
             # Try to get MS level from filter
             ms_level = 1
@@ -648,15 +700,28 @@ class RawFile:
                 filter_info = self._raw_file.GetFilterForScanNumber(scan_number)
                 if hasattr(filter_info, "MSOrder"):
                     ms_level = int(filter_info.MSOrder)
-            except Exception:
-                pass
+                else:
+                    logger.debug(
+                        "Scan %s: MSOrder is not available, assuming MS%s", scan_number, ms_level
+                    )
+            except Exception as e:
+                # ms_level stays 1 here, which is indistinguishable from a real MS1
+                # scan unless the failed lookup is recorded.
+                logger.debug(
+                    "Scan %s: could not read the MS order (%s), assuming MS%s",
+                    scan_number,
+                    e,
+                    ms_level,
+                )
 
             # Get retention time
             trigger_time = 0.0
             try:
                 trigger_time = float(self._raw_file.RetentionTimeFromScanNumber(scan_number))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    "Scan %s: could not read the retention time (%s), using 0.0", scan_number, e
+                )
 
             return ScanHeader(
                 scan_number=int(scan_number),
@@ -664,7 +729,9 @@ class RawFile:
                 precursor_scan_num=0,  # Not available in all versions
                 scan_type=scan_type_str,
                 instrument_model="",  # Not directly available
-                number_of_ions=int(getattr(stats, "PacketCount", 0)),
+                number_of_ions=int(
+                    _attr_or_default(stats, "PacketCount", 0, f"Scan {scan_number} stats")
+                ),
                 isolation_width=0.0,  # Not available without GetScanHeaderInfo
                 collision_energy=0.0,  # Not available without GetScanHeaderInfo
                 trigger_time=trigger_time,
@@ -699,30 +766,52 @@ class RawFile:
 
             reactions = []
             # Try to get reaction count - may not be available in all versions
-            if hasattr(scan_event, "ReactionCount"):
-                reaction_count = getattr(scan_event, "ReactionCount", 0)
-                if reaction_count and reaction_count > 0:
-                    for i in range(reaction_count):
-                        try:
-                            reaction = scan_event.GetReaction(i)
-                            reactions.append(
-                                Reaction(
-                                    precursor_mass=float(getattr(reaction, "PrecursorMass", 0)),
-                                    collision_energy=float(getattr(reaction, "CollisionEnergy", 0)),
-                                    isolation_width=float(getattr(reaction, "IsolationWidth", 0)),
-                                )
+            reaction_count = _attr_or_default(
+                scan_event, "ReactionCount", 0, f"Scan {scan_number} event"
+            )
+            if reaction_count and reaction_count > 0:
+                for i in range(reaction_count):
+                    try:
+                        reaction = scan_event.GetReaction(i)
+                        context = f"Scan {scan_number} reaction {i}"
+                        reactions.append(
+                            Reaction(
+                                precursor_mass=float(
+                                    _attr_or_default(reaction, "PrecursorMass", 0, context)
+                                ),
+                                collision_energy=float(
+                                    _attr_or_default(reaction, "CollisionEnergy", 0, context)
+                                ),
+                                isolation_width=float(
+                                    _attr_or_default(reaction, "IsolationWidth", 0, context)
+                                ),
                             )
-                        except Exception:
-                            break
+                        )
+                    except Exception as e:
+                        # The caller receives a shorter list than the file claims.
+                        logger.warning(
+                            "Scan %s: reaction list truncated to %d of %s entries: %s",
+                            scan_number,
+                            len(reactions),
+                            reaction_count,
+                            e,
+                        )
+                        break
 
             # Get mass analyzer - use string name if enum not available
             mass_analyzer = 0
-            ma_attr = getattr(scan_event, "MassAnalyzer", None)
+            ma_attr = _attr_or_default(
+                scan_event, "MassAnalyzer", None, f"Scan {scan_number} event"
+            )
             if ma_attr is not None:
                 try:
                     mass_analyzer = int(ma_attr)
                 except (ValueError, TypeError):
-                    # It's a string enum name, just use a hash or 0
+                    # The attribute is a string enum name here, which has no numeric
+                    # equivalent to hand back; 0 means "analyzer unknown".
+                    logger.debug(
+                        "Scan %s: mass analyzer %r is not numeric, using 0", scan_number, ma_attr
+                    )
                     mass_analyzer = 0
 
             return ScanEvent(
@@ -753,13 +842,14 @@ class RawFile:
             stats = self._raw_file.GetScanStatsForScanNumber(scan_number)
 
             # Note: Attribute names may vary by library version
-            # Using getattr with defaults for compatibility
+            # Using _attr_or_default for compatibility; it logs what was absent
+            ctx = f"Scan {scan_number} stats"
             return ScanStats(
-                is_centroid_scan=bool(getattr(stats, "IsCentroidScan", False)),
-                spectrum_packet_type=int(getattr(stats, "SpectrumPacketType", 0)),
-                mass_count=int(getattr(stats, "PacketCount", 0)),
-                total_intensity=float(getattr(stats, "TIC", 0.0)),
-                max_intensity=float(getattr(stats, "BasePeakIntensity", 0.0)),
+                is_centroid_scan=bool(_attr_or_default(stats, "IsCentroidScan", False, ctx)),
+                spectrum_packet_type=int(_attr_or_default(stats, "SpectrumPacketType", 0, ctx)),
+                mass_count=int(_attr_or_default(stats, "PacketCount", 0, ctx)),
+                total_intensity=float(_attr_or_default(stats, "TIC", 0.0, ctx)),
+                max_intensity=float(_attr_or_default(stats, "BasePeakIntensity", 0.0, ctx)),
             )
         except Exception as e:
             raise RuntimeError(f"Failed to get scan stats for scan {scan_number}: {e}") from e
@@ -767,8 +857,10 @@ class RawFile:
     def default_mass_options(self) -> MassOptions:
         """Get default mass options for scan averaging operations.
 
-        Note: This method returns default values since the underlying
-        DefaultMassOptions method may not be available in all library versions.
+        Note: ``DefaultMassOptions`` is not present on the RawFileReader
+        assemblies this package loads, so in practice the result is always the
+        fallback below - the tolerance is ours, not something the file reported.
+        The substitution is logged at DEBUG.
 
         Returns:
             MassOptions object with default tolerance settings (5 ppm).
@@ -788,8 +880,13 @@ class RawFile:
                 tolerance=float(net_options.Tolerance),
                 tolerance_units=int(net_options.ToleranceUnits),
             )
-        except Exception:
-            # Return sensible defaults if method not available
+        except Exception as e:
+            # DEBUG rather than WARNING: on the current assemblies this is the
+            # normal path and averaging calls it repeatedly, so a warning per call
+            # would be noise. The docstring says the tolerance is ours.
+            logger.debug(
+                "DefaultMassOptions is unavailable (%s), substituting a 5.0 ppm tolerance", e
+            )
             return MassOptions(tolerance=5.0, tolerance_units=1)
 
     def average_scans_in_scan_range(
@@ -825,7 +922,14 @@ class RawFile:
 
         # Check if the method is available
         if not hasattr(self._raw_file, "AverageScansInScanRange"):
-            # Feature not available in this library version
+            # Feature not available in this library version. The empty spectrum is
+            # otherwise indistinguishable from averaging an empty range.
+            logger.warning(
+                "AverageScansInScanRange is not available on this RawFileReader build; "
+                "returning an empty spectrum instead of averaging scans %s-%s",
+                first_scan,
+                last_scan,
+            )
             return Spectrum(scan_number=first_scan, is_centroid=True)
 
         try:
@@ -884,7 +988,13 @@ class RawFile:
 
         # Check if the method is available
         if not hasattr(self._raw_file, "AverageScans"):
-            # Feature not available in this library version
+            # Feature not available in this library version. The empty spectrum is
+            # otherwise indistinguishable from averaging an empty range.
+            logger.warning(
+                "AverageScans is not available on this RawFileReader build; returning an "
+                "empty spectrum instead of averaging %d scan(s)",
+                len(scan_numbers),
+            )
             return Spectrum(scan_number=0, is_centroid=True)
 
         try:
@@ -1023,6 +1133,13 @@ class RawFile:
                             ms_level=int(detail.MSLevel),
                         )
                     )
+            else:
+                # Empty details would otherwise read as "this scan has no children".
+                logger.debug(
+                    "Scan %s: ScanDependentDetailArray is not available, "
+                    "returning no dependent details",
+                    scan_number,
+                )
 
             return ScanDependents(
                 raw_file_instrument_type=str(dependents.RawFileInstrumentType)
@@ -1143,6 +1260,8 @@ class RawFile:
                 charges = None
                 if hasattr(centroid_stream, "Charges") and centroid_stream.Charges is not None:
                     charges = self._numpy_array_from_net(centroid_stream.Charges)
+                else:
+                    logger.debug("Scan %s: the centroid stream has no charge states", scan_number)
 
                 return Spectrum(
                     masses=masses,
@@ -1327,7 +1446,9 @@ class RawFile:
         """Get inclusion/exclusion list from instrument method.
 
         Note: This is a simplified implementation that parses the
-        instrument method text for mass list tables.
+        instrument method text for mass list tables. Rows that cannot be parsed are
+        dropped: each one is logged at DEBUG and the total at WARNING, so a short
+        list is not mistaken for a complete one.
 
         Args:
             mass_tolerance: Mass tolerance for associating items with scans.
@@ -1358,35 +1479,57 @@ class RawFile:
                         inclusion_strings.append(line)
 
         # Parse inclusion list items
+        skipped = 0
         for line in inclusion_strings:
             if "CompoundName" in line:
                 continue  # Skip header
 
             parts = line.split("|")
-            if len(parts) >= 3:
-                try:
-                    item = InclusionListItem(
-                        descriptor=parts[0].strip(),
-                        mass=float(parts[1].strip()),
-                        threshold=float(parts[2].strip()),
-                    )
-                    result.append(item)
-                except ValueError:
-                    continue
+            if len(parts) < 3:
+                skipped += 1
+                logger.debug(
+                    "Inclusion list row has %d field(s), expected at least 3: %r",
+                    len(parts),
+                    line,
+                )
+                continue
+
+            try:
+                item = InclusionListItem(
+                    descriptor=parts[0].strip(),
+                    mass=float(parts[1].strip()),
+                    threshold=float(parts[2].strip()),
+                )
+                result.append(item)
+            except ValueError as e:
+                skipped += 1
+                logger.debug("Could not parse inclusion list row %r: %s", line, e)
+
+        if skipped:
+            logger.warning(
+                "Inclusion/exclusion list: dropped %d unparseable row(s), kept %d",
+                skipped,
+                len(result),
+            )
 
         return result
 
     def close(self) -> None:
-        """Close the file and release resources."""
+        """Close the file and release resources.
+
+        Errors from the .NET ``Dispose()`` call are swallowed, because ``close()`` also
+        runs from ``__del__`` where raising would be lost or noisy, but they are logged
+        at DEBUG. ``BaseException`` is deliberately not caught, so ``KeyboardInterrupt``
+        and ``SystemExit`` raised during disposal still propagate.
+        """
         if self._raw_file is not None:
             rf = self._raw_file
             self._raw_file = None
             try:
                 rf.Dispose()
-            except BaseException:
-                # Ignore all errors during disposal, especially in __del__
-                # where the interpreter may be shutting down
-                pass
+            except Exception as e:
+                # Must not raise: close() also runs from __del__.
+                logger.debug("Error while disposing of the raw file: %s", e, exc_info=True)
 
     def __enter__(self) -> RawFile:
         """Context manager entry."""
