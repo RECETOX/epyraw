@@ -19,6 +19,10 @@ release is what gets published, so the two must agree.
 
 ## [Unreleased]
 
+- Silent fallbacks are now reported instead of swallowed: the package logs every absent field or
+  method and the default used in its place through the standard `logging` module (which it never
+  configures), and the CLI accepts `-v` / `-vv`.
+  ([#16](https://github.com/RECETOX/epyraw/pull/16))
 - Type-checked `src/epyraw` under strict mypy, which exposed and fixed a latent bug:
   `Chromatogram.total_ion_current` raised `AttributeError` on numpy ≥ 2 because `np.trapz` was removed,
   so it now integrates directly and is covered by tests.
