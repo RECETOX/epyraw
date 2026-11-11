@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -29,6 +31,7 @@ from .models import (
     FileHeader,
     InclusionListItem,
     InstrumentData,
+    InstrumentStatusLog,
     MassOptions,
     Reaction,
     RunHeader,
@@ -40,6 +43,7 @@ from .models import (
     ScanHeader,
     ScanStats,
     Spectrum,
+    StatusLogEntry,
     StatusLogField,
 )
 
@@ -274,6 +278,42 @@ def _initialize_dotnet(runtime: str | None = None) -> None:
     _dotnet_initialized = True
 
 
+def _status_log_value(field: StatusLogField, raw: Any) -> float | str | None:
+    """Convert one raw status-log value into a Python value.
+
+    The .NET accessors report the same value in different representations:
+    ``GetStatusLogEntry()`` hands back typed objects (``float`` for a numeric
+    channel, ``str`` for a text field, ``None`` for a structure row) while
+    ``GetStatusLogForRetentionTime()`` and ``GetStatusLogAtPosition()`` hand back
+    display strings (``''`` where there is no value). This function is the single
+    place where a value read for a :class:`StatusLogField` is coerced, and every
+    caller of it arrives from the typed ``GetStatusLogEntry()`` path - including
+    :meth:`RawFile.get_status_log_at_time`, which uses that method's
+    retention-time overload. The string-returning accessors are not called from
+    here or anywhere else in this module; if they are ever wired in they must
+    route through this converter as well rather than each re-implementing the
+    coercion, so that a label always yields the same kind of Python object.
+
+    Args:
+        field: Definition of the field the value belongs to.
+        raw: Raw value as returned by the .NET library.
+
+    Returns:
+        ``float`` for a numeric field whose value parses as a number, ``str`` for
+        a non-numeric field, and ``None`` for a missing or unparseable value.
+    """
+    if raw is None:
+        return None
+
+    if field.is_numeric:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    return str(raw)
+
+
 class RawFile:
     """Wrapper around Thermo RawFileReader's IRawDataPlus interface.
 
@@ -304,6 +344,10 @@ class RawFile:
         self._raw_file: Any = None
         self._selected_device: Device | None = None
         self._selected_instance: int = 0
+        # Which instrument stream carries the status log; discovered on first use.
+        # None means "not found" once _status_log_stream_resolved is set.
+        self._status_log_stream: tuple[Device, int] | None = None
+        self._status_log_stream_resolved: bool = False
 
         # Initialize .NET runtime
         _initialize_dotnet()
@@ -1303,25 +1347,457 @@ class RawFile:
         except Exception as e:
             raise RuntimeError(f"Failed to get trailer extra information: {e}") from e
 
+    @property
+    def status_log_fields(self) -> list[StatusLogField]:
+        """Field definitions of the status log.
+
+        The status log records the instrument state at acquisition time - "live"
+        values such as temperatures, spray voltage, gas flows and vacuum
+        pressures - not per-scan data. This property describes the columns;
+        :meth:`get_status_log` and :meth:`get_status_log_entry` return the values.
+
+        Returns:
+            One StatusLogField per column in file order, including the
+            non-numeric rows (section titles such as
+            ``'======  Ion Source:  ======:'`` and text fields such as
+            ``'Status:'``). Empty if the file is closed or no instrument stream
+            in it carries a status log.
+
+        Raises:
+            InstrumentNotSelectedError: If no instrument is selected - the status
+                log belongs to one instrument stream (see
+                :meth:`status_log_streams`).
+
+        Note:
+            Identify fields by :attr:`StatusLogField.label`, never by position:
+            the set, order and number of channels depends on instrument model,
+            firmware and instrument method. Labels are verbatim file text and may
+            contain non-ASCII characters (``°``, ``µ``).
+        """
+        with self._status_log_source() as net:
+            if net is None:
+                return []
+            return self._read_status_log_fields(net)
+
+    @property
+    def status_log_count(self) -> int:
+        """Number of entries (rows) in the status log.
+
+        Returns:
+            The entry count, or 0 if the file is closed or no instrument stream
+            in it carries a status log.
+
+        Raises:
+            InstrumentNotSelectedError: If no instrument is selected.
+        """
+        with self._status_log_source() as net:
+            if net is None:
+                return 0
+            return int(net.GetStatusLogEntriesCount())
+
+    def status_log_streams(self) -> list[tuple[Device, int]]:
+        """List the instrument streams that carry a status log.
+
+        Which stream holds the status log is not fixed: on some files the
+        acquisition-time values are written on a ``Device.Analog`` or
+        ``Device.Other`` stream rather than on ``Device.MS``. Every device type
+        and instance the file reports is probed, so this works without assuming
+        ``select_instrument(Device.MS, 1)``.
+
+        Returns:
+            ``(Device, instance)`` pairs (instance is 1-based) whose status log
+            has at least one entry, in device-enum order. Empty if the file is
+            closed or no stream has a status log.
+
+        Raises:
+            InstrumentNotSelectedError: If no instrument is selected, because
+                probing needs to change the selection and the "nothing selected"
+                state cannot be restored afterwards.
+
+        Note:
+            The selection in place when this is called is restored before it
+            returns.
+
+        Example:
+            >>> with RawFile("data.raw") as rf:
+            ...     rf.select_instrument(Device.MS, 1)
+            ...     for device, instance in rf.status_log_streams():
+            ...         print(device, instance)
+        """
+        if self._raw_file is None:
+            return []
+
+        found: list[tuple[Device, int]] = []
+        with self._restored_selection():
+            for device, instance in self._instrument_streams():
+                if self._select_and_probe_status_log(device, instance) > 0:
+                    found.append((device, instance))
+        return found
+
     def get_status_log_header_information(self) -> list[StatusLogField]:
         """Get status log field definitions.
 
         Returns:
             List of StatusLogField objects.
+
+        Note:
+            Kept as a delegating alias of :attr:`status_log_fields`; the property
+            documents the caveats that apply to the labels.
+        """
+        return self.status_log_fields
+
+    def get_status_log_entry(self, index: int) -> StatusLogEntry:
+        """Get one status log entry by index.
+
+        Args:
+            index: Entry index, 0-based, in file order.
+
+        Returns:
+            StatusLogEntry with its ``time`` in minutes and its values keyed by the
+            verbatim field label.
+
+        Raises:
+            IndexError: If the index is out of range, or if the file has no status
+                log to index into.
+            InstrumentNotSelectedError: If no instrument is selected.
+
+        Note:
+            Indexes count the rows in file order - nothing is sorted or
+            deduplicated, so index 0 is the first row the file holds. See
+            :meth:`get_status_log` for the whole log at once.
+        """
+        with self._status_log_source() as net:
+            if net is None:
+                raise IndexError(f"Status log index {index} is out of range: nothing is logged")
+
+            count = int(net.GetStatusLogEntriesCount())
+            if count == 0:
+                raise IndexError(f"Status log index {index} is out of range: nothing is logged")
+            if index < 0 or index >= count:
+                raise IndexError(f"Status log index {index} is out of range (0-{count - 1})")
+
+            fields = self._read_status_log_fields(net)
+            return self._build_status_log_entry(net.GetStatusLogEntry(int(index)), fields)
+
+    def get_status_log_at_time(self, retention_time: float) -> StatusLogEntry:
+        """Get the status log entry nearest to a retention time.
+
+        Args:
+            retention_time: Time in minutes.
+
+        Returns:
+            StatusLogEntry of the nearest logged entry.
+
+        Raises:
+            IndexError: If the file has no status log.
+            InstrumentNotSelectedError: If no instrument is selected.
+
+        Note:
+            Times outside the logged range are clamped to the first or last entry
+            instead of raising, so check :attr:`StatusLogEntry.time` on the result
+            if you need the value at an exact time. Status-log times are sparse
+            and independent of the scan cadence - joining them to scans is a
+            nearest-in-time operation you perform yourself.
+        """
+        with self._status_log_source() as net:
+            if net is None or int(net.GetStatusLogEntriesCount()) == 0:
+                raise IndexError(f"No status log entry to read near {retention_time} min")
+            # float() selects the retention-time overload; pythonnet resolves the
+            # two GetStatusLogEntry overloads by Python type.
+            net_entry = net.GetStatusLogEntry(float(retention_time))
+            return self._build_status_log_entry(net_entry, self._read_status_log_fields(net))
+
+    def get_status_log(
+        self,
+        start_time: float | None = None,
+        end_time: float | None = None,
+    ) -> InstrumentStatusLog:
+        """Read the status log, optionally restricted to a time window.
+
+        Describes one instrument stream - one set of field definitions is one
+        rectangular table, so streams are never merged into one result. Use
+        :meth:`status_log_streams` to find them and select the one you want.
+
+        Args:
+            start_time: Earliest entry time to keep, in minutes (inclusive).
+                ``None`` means no lower bound.
+            end_time: Latest entry time to keep, in minutes (inclusive).
+                ``None`` means no upper bound.
+
+        Returns:
+            InstrumentStatusLog with the field definitions and the matching
+            entries in file order. Empty if the file is closed or no instrument
+            stream in it carries a status log.
+
+        Raises:
+            InstrumentNotSelectedError: If no instrument is selected.
+
+        Note:
+            Entries are neither sorted nor deduplicated, so an unfiltered read
+            always returns :attr:`status_log_count` entries. The library also
+            offers ``GetSortedStatusLogEntry`` upstream if you want duplicate or
+            out-of-order times removed.
+        """
+        with self._status_log_source() as net:
+            if net is None:
+                return InstrumentStatusLog()
+
+            fields = self._read_status_log_fields(net)
+            entries: list[StatusLogEntry] = []
+            for index in range(int(net.GetStatusLogEntriesCount())):
+                entry = self._build_status_log_entry(net.GetStatusLogEntry(int(index)), fields)
+                if start_time is not None and entry.time < start_time:
+                    continue
+                if end_time is not None and entry.time > end_time:
+                    continue
+                entries.append(entry)
+
+            return InstrumentStatusLog(fields=fields, entries=entries)
+
+    def get_status_log_channel(self, label: str) -> tuple[np.ndarray, np.ndarray]:
+        """Get the full time series of one numeric status log channel.
+
+        Args:
+            label: Verbatim channel label, e.g. ``'Capillary Temperature (°C)'``.
+                Look channels up by label: which labels exist, in which order,
+                depends on the instrument.
+
+        Returns:
+            ``(times, values)`` as float64 arrays, in file order, times in
+            minutes. Values the file did not fill in are ``NaN``.
+
+        Raises:
+            ValueError: If no numeric channel has that label - either the label is
+                unknown or it exists but is not numeric. The message reports how
+                many numeric channels the file offers.
+            InstrumentNotSelectedError: If no instrument is selected.
+
+        Note:
+            Values keep the full precision the file stores. The upstream
+            single-channel API (``StatusLogPlottableData`` plus
+            ``GetStatusLogAtPosition``) returns display-formatted strings instead
+            - ``'2515.9'`` where the entry API reports ``2515.897091586047`` - so
+            it is not used here.
+        """
+        with self._status_log_source() as net:
+            fields = [] if net is None else self._read_status_log_fields(net)
+            channel = next((f for f in fields if f.is_numeric and f.label == label), None)
+            if channel is None:
+                available = sum(1 for f in fields if f.is_numeric)
+                if any(f.label == label for f in fields):
+                    raise ValueError(
+                        f"Status log field {label!r} is not a numeric channel; "
+                        f"{available} numeric channels are available"
+                    )
+                raise ValueError(
+                    f"Unknown status log channel {label!r}; "
+                    f"{available} numeric channels are available"
+                )
+
+            # net is None only when there are no fields at all, which is handled above.
+            count = int(net.GetStatusLogEntriesCount())
+            times = np.empty(count, dtype=np.float64)
+            values = np.full(count, np.nan, dtype=np.float64)
+            for index in range(count):
+                entry = self._build_status_log_entry(net.GetStatusLogEntry(int(index)), fields)
+                value = entry.values.get(label)
+                times[index] = entry.time
+                if value is not None:
+                    values[index] = float(value)
+
+            return times, values
+
+    @contextmanager
+    def _restored_selection(self) -> Iterator[tuple[int, int]]:
+        """Yield the selected ``(device type, instance)`` and restore it on exit.
+
+        Yields:
+            The instrument stream that was selected on entry.
+
+        Raises:
+            InstrumentNotSelectedError: If no instrument is selected. Nothing can
+                be probed without a selection, and the "nothing selected" state
+                cannot be restored afterwards, so it is refused rather than
+                silently changed.
+        """
+        selection = self._raw_file.SelectedInstrument
+        device_type = selection.DeviceType
+        original = (int(device_type), int(selection.InstrumentIndex))
+        if original[1] < 0:
+            raise InstrumentNotSelectedError(
+                "No instrument is selected - call select_instrument() first. The status "
+                "log belongs to a single instrument stream."
+            )
+
+        try:
+            yield original
+        finally:
+            # Restore with the saved .NET values so any device type works, not only
+            # the ones our Device enum names.
+            self._raw_file.SelectInstrument(device_type, original[1])
+
+    @contextmanager
+    def _status_log_source(self) -> Iterator[Any]:
+        """Yield the .NET adapter with a status-log stream selected.
+
+        Yields:
+            The ``IRawDataPlus`` adapter with the stream that carries the status
+            log selected, or ``None`` if the file is closed or no stream in it has
+            a status log.
+
+        Raises:
+            InstrumentNotSelectedError: If no instrument is selected.
+
+        Note:
+            The stream is selected only for the duration of the block; whatever
+            the caller had selected is restored on the way out, so reading the
+            status log never changes the caller's instrument selection.
         """
         if self._raw_file is None:
-            return []
+            yield None
+            return
 
-        fields = self._raw_file.GetStatusLogHeaderInformation()
-        result = []
-        for field in fields:
-            result.append(
+        with self._restored_selection():
+            if self._select_status_log_stream() is None:
+                yield None
+            else:
+                yield self._raw_file
+
+    def _select_status_log_stream(self) -> tuple[Device, int] | None:
+        """Select the instrument stream that carries the status log.
+
+        Returns:
+            The stream holding the status log, or ``None`` if the file has none.
+
+        Note:
+            The answer is a property of the file, so it is discovered once and
+            cached - including the answer that no stream has a status log, which
+            costs a probe of every stream to establish. The already selected
+            stream is used as-is when it has a status log; otherwise the other
+            streams are searched, which is what lets a caller who selected
+            ``Device.MS`` read a log written on another stream.
+        """
+        if not self._status_log_stream_resolved:
+            current = self._raw_file.SelectedInstrument
+            current_stream = (int(current.DeviceType), int(current.InstrumentIndex))
+            stream: tuple[Device, int] | None = None
+
+            if self._status_log_entry_count() > 0:
+                try:
+                    stream = (Device(current_stream[0]), current_stream[1])
+                except ValueError:
+                    stream = None
+
+            if stream is None:
+                for device, instance in self._instrument_streams():
+                    if (int(device), instance) == current_stream:
+                        continue
+                    if self._select_and_probe_status_log(device, instance) > 0:
+                        stream = (device, instance)
+                        break
+
+            self._status_log_stream = stream
+            self._status_log_stream_resolved = True
+
+        stream = self._status_log_stream
+        if stream is not None:
+            selected = self._raw_file.SelectedInstrument
+            if (int(selected.DeviceType), int(selected.InstrumentIndex)) != (
+                int(stream[0]),
+                stream[1],
+            ):
+                self.select_instrument(stream[0], stream[1])
+
+        return stream
+
+    def _instrument_streams(self) -> list[tuple[Device, int]]:
+        """List every instrument stream the file reports.
+
+        Returns:
+            ``(Device, instance)`` pairs with a 1-based instance, built from the
+            instrument counts the file reports for each device type - no device
+            type is assumed to exist or to be absent.
+        """
+        streams: list[tuple[Device, int]] = []
+        for device in Device:
+            try:
+                count = self.get_instrument_count_by_type(device)
+            except Exception:
+                count = 0
+            streams.extend((device, instance) for instance in range(1, count + 1))
+        return streams
+
+    def _status_log_entry_count(self) -> int:
+        """Entry count of the currently selected stream, 0 when there is none."""
+        try:
+            return int(self._raw_file.GetStatusLogEntriesCount())
+        except Exception:
+            return 0
+
+    def _select_and_probe_status_log(self, device: Device, instance: int) -> int:
+        """Select a stream and report its status-log entry count.
+
+        Args:
+            device: Device type of the stream to probe.
+            instance: 1-based instance of the stream to probe.
+
+        Returns:
+            The number of status-log entries, or 0 if the stream cannot be
+            selected or has no status log - a stream without one is a normal
+            finding while searching, not an error.
+        """
+        try:
+            self.select_instrument(device, instance)
+            return int(self._raw_file.GetStatusLogEntriesCount())
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _read_status_log_fields(net: Any) -> list[StatusLogField]:
+        """Convert the .NET status-log header into StatusLogField objects.
+
+        Args:
+            net: Adapter with the stream to read selected.
+
+        Returns:
+            One field definition per column, in file order.
+        """
+        fields: list[StatusLogField] = []
+        for item in net.GetStatusLogHeaderInformation():
+            label = str(item.Label) if item.Label else ""
+            fields.append(
                 StatusLogField(
-                    label=str(field.Label) if field.Label else "",
-                    data_type=int(field.DataType),
+                    label=label,
+                    data_type=int(item.DataType),
+                    is_numeric=bool(item.IsNumeric),
+                    unit=StatusLogField._unit_from_label(label),
                 )
             )
-        return result
+        return fields
+
+    @staticmethod
+    def _build_status_log_entry(net_entry: Any, fields: list[StatusLogField]) -> StatusLogEntry:
+        """Convert one .NET status-log entry into a StatusLogEntry.
+
+        Values arrive typed (``GetStatusLogEntry``) or as strings (the
+        retention-time accessors); both go through :func:`_status_log_value`, so
+        the same label yields the same kind of object either way.
+
+        Args:
+            net_entry: ``IStatusLogEntry`` or ``ILogEntryAccess`` from .NET.
+            fields: Field definitions matching the entry's value order.
+
+        Returns:
+            StatusLogEntry keyed by label.
+        """
+        raw_values = net_entry.Values
+        available = min(len(fields), len(raw_values))
+        values: dict[str, float | str | None] = {}
+        for index, definition in enumerate(fields):
+            raw = raw_values[index] if index < available else None
+            values[definition.label] = _status_log_value(definition, raw)
+
+        return StatusLogEntry(time=float(net_entry.Time), values=values)
 
     def get_inclusion_exclusion_list(self, mass_tolerance: float = 1e-5) -> list[InclusionListItem]:
         """Get inclusion/exclusion list from instrument method.
@@ -1381,6 +1857,8 @@ class RawFile:
         if self._raw_file is not None:
             rf = self._raw_file
             self._raw_file = None
+            self._status_log_stream = None
+            self._status_log_stream_resolved = False
             try:
                 rf.Dispose()
             except BaseException:

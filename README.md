@@ -11,6 +11,7 @@ This package provides a Pythonic interface to the official [Thermo RawFileReader
 - Extract chromatograms (TIC, Base Peak, EIC/XIC)
 - Access file metadata (sample info, instrument details, run headers)
 - Get scan filters and trailer extra data
+- Read the status log: instrument state recorded during acquisition (temperatures, spray voltage, gas flows, vacuum)
 - Average scans across a range
 
 ## Installation
@@ -140,6 +141,8 @@ Opens a RAW file for reading. Uses context manager pattern for automatic resourc
 | `file_header` | FileHeader | File header information |
 | `run_header` | RunHeader | Run header information |
 | `sample_information` | SampleInformation | Sample metadata |
+| `status_log_fields` | list[StatusLogField] | Status log field definitions |
+| `status_log_count` | int | Number of status log entries |
 
 #### Methods
 
@@ -156,6 +159,11 @@ Opens a RAW file for reading. Uses context manager pattern for automatic resourc
 | `average_scans(range, tolerance, units)` | Average spectra in a range |
 | `get_trailer_extra_information(scan)` | Get trailer extra fields |
 | `get_status_log_header_information()` | Get status log field definitions |
+| `status_log_streams()` | List instrument streams that carry a status log |
+| `get_status_log(start, end)` | Read the status log (optionally a time window) |
+| `get_status_log_entry(index)` | Read one status log entry by index |
+| `get_status_log_at_time(rt)` | Read the status log entry nearest a time |
+| `get_status_log_channel(label)` | Time series of one numeric status log channel |
 | `get_inclusion_exclusion_list()` | Get inclusion/exclusion list |
 | `close()` | Close the file |
 
@@ -214,6 +222,45 @@ class RunHeader:
     max_intensity: float
     # ... and more
 ```
+
+#### StatusLogField
+
+```python
+@dataclass
+class StatusLogField:
+    label: str         # verbatim from the file, may contain ° or µ
+    data_type: int
+    is_numeric: bool   # False for section titles and text rows
+    unit: str          # parsed from the label text, '' when the label states none
+```
+
+#### InstrumentStatusLog
+
+```python
+@dataclass
+class InstrumentStatusLog:
+    fields: list[StatusLogField]  # every column the file defines
+    entries: list[StatusLogEntry]  # logged rows, in file order
+
+    # Properties
+    channels: list[str]  # labels of the numeric channels only
+
+    # Methods
+    to_pandas()  # 'time' column plus one column per channel
+```
+
+#### StatusLogEntry
+
+```python
+@dataclass
+class StatusLogEntry:
+    time: float                          # minutes
+    values: dict[str, float | str | None]  # keyed by verbatim field label
+```
+
+Values are keyed by label, never by position: the channel set varies with the
+instrument. Numeric channels hold `float`, text fields `str`, structure rows `None`.
+See the [usage guide](docs/usage.md#instrument-status-log).
 
 ### Enums
 

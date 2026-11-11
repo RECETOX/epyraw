@@ -18,3 +18,5 @@
             - InstrumentData
             - ScanFilter
             - StatusLogField
+            - StatusLogEntry
+            - InstrumentStatusLog

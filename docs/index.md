@@ -7,6 +7,7 @@ Python wrapper for Thermo Fisher RawFileReader library - read .raw mass spectrom
 - Read Thermo Scientific .raw mass spectrometry files
 - Access spectrum and chromatogram data
 - Extract scan metadata and statistics
+- Read the instrument status log recorded during acquisition
 - Support for MS1 and MSn scans
 - Cross-platform (Windows, Linux, macOS)
 

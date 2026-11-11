@@ -400,17 +400,159 @@ class InclusionListItem:
 
 @dataclass
 class StatusLogField:
-    """Status log field definition."""
+    """One status-log column definition.
+
+    The status log records the instrument state while the file was acquired
+    (temperatures, spray voltage, gas flows, vacuum pressures, ...). Every row
+    of the log has one value per field defined here.
+
+    Fields are identified by ``label``, never by position: which labels exist,
+    in which order and how many there are depends on the instrument model,
+    firmware and instrument method. Labels are passed through verbatim,
+    including non-ASCII characters (``°``, ``µ``), because they are the key you
+    use to look values up.
+    """
 
     label: str = ""
-    """Field label/name."""
+    """Field label/name, verbatim from the file."""
 
     data_type: int = 0
     """Data type (GenericDataTypes enum value)."""
 
+    is_numeric: bool = False
+    """Whether the file marks this field as a numeric channel.
+
+    Non-numeric fields are structure (section rows such as
+    ``'======  Ion Source:  ======:'``) or free text (``'Status:'``). They stay
+    on ``fields`` but are excluded from
+    :attr:`InstrumentStatusLog.channels`.
+    """
+
+    unit: str = ""
+    """Unit text parsed from the label, ``''`` when the label carries none.
+
+    Parsed from the label string, not read from the file - the RAW format stores
+    no machine-readable unit. See :meth:`_unit_from_label`.
+    """
+
+    @staticmethod
+    def _unit_from_label(label: str) -> str:
+        """Parse the unit out of a status-log label (internal use).
+
+        Only a parenthetical at the very end of the label counts as a unit:
+        ``'Spray Voltage (V)'`` -> ``'V'``, ``'Capillary Temperature (°C)'`` ->
+        ``'°C'``, ``'Sheath gas flow rate'`` -> ``''``. The label itself is never
+        modified.
+
+        Args:
+            label: Verbatim field label.
+
+        Returns:
+            The unit text, or ``''`` when the label has no trailing parenthetical.
+        """
+        if not label.endswith(")"):
+            return ""
+        start = label.rfind("(")
+        if start == -1:
+            return ""
+        unit = label[start + 1 : -1]
+        if not unit or ")" in unit:
+            return ""
+        return unit
+
     def __repr__(self) -> str:
         """Return a string representation."""
         return f"StatusLogField({self.label})"
+
+
+@dataclass
+class StatusLogEntry:
+    """One status-log row: the instrument state recorded at one point in time.
+
+    Values are keyed by the verbatim field label, so a key is only guaranteed to
+    exist for the file the entry was read from. Numeric channels hold ``float``,
+    text fields hold ``str``, and structure rows (or a numeric value the file did
+    not fill in) hold ``None``.
+    """
+
+    time: float = 0.0
+    """Time the entry was recorded, in minutes.
+
+    The log stores times in single precision; they are widened to a Python float
+    on the way out, which loses nothing but also invents no extra digits.
+    """
+
+    values: dict[str, float | str | None] = field(default_factory=dict)
+    """Values keyed by verbatim field label."""
+
+    def __len__(self) -> int:
+        """Return the number of values."""
+        return len(self.values)
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return f"StatusLogEntry(time={self.time:.4f} min, values={len(self.values)})"
+
+
+@dataclass
+class InstrumentStatusLog:
+    """Status log of one instrument stream: field definitions plus recorded rows.
+
+    ``fields`` describes every column the file defines, including the
+    non-numeric structure rows; ``entries`` holds the rows in file order. Nothing
+    is sorted and no times are dropped, so the caller always sees exactly what
+    the file contains.
+    """
+
+    fields: list[StatusLogField] = field(default_factory=list)
+    """Field definitions, in file order."""
+
+    entries: list[StatusLogEntry] = field(default_factory=list)
+    """Recorded entries, in file order."""
+
+    @property
+    def channels(self) -> list[str]:
+        """Labels of the numeric channels, in file order.
+
+        Derived from :attr:`fields` (``is_numeric`` only); section rows and text
+        rows are not channels.
+        """
+        return [f.label for f in self.fields if f.is_numeric]
+
+    def to_pandas(self) -> pd.DataFrame:
+        """Convert the numeric channels to a pandas DataFrame.
+
+        Returns:
+            DataFrame of shape ``(len(entries), len(channels) + 1)``: a ``'time'``
+            column (minutes) followed by one column per numeric channel, rows in
+            entry order. Like :meth:`Chromatogram.to_pandas`, time is a *column*,
+            not the index. Values that are missing or not coercible to ``float``
+            become ``NaN``; non-numeric rows stay on :attr:`fields` and get no
+            column.
+
+        Example:
+            >>> df = log.to_pandas()
+            >>> df[["time", "Capillary Temperature (°C)"]]  # doctest: +SKIP
+        """
+        data: dict[str, list[float]] = {"time": [e.time for e in self.entries]}
+        for channel in self.channels:
+            column: list[float] = []
+            for entry in self.entries:
+                try:
+                    column.append(float(entry.values.get(channel)))  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    column.append(float("nan"))
+            data[channel] = column
+
+        return pd.DataFrame(data)
+
+    def __len__(self) -> int:
+        """Return the number of entries."""
+        return len(self.entries)
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return f"InstrumentStatusLog(channels={len(self.channels)}, entries={len(self.entries)})"
 
 
 @dataclass

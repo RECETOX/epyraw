@@ -242,6 +242,38 @@ class TestStatusLogField:
         field = StatusLogField(label="Test Field", data_type=1)
         assert "Test Field" in repr(field)
 
+    def test_added_fields_default(self):
+        """Test the added fields keep positional construction working."""
+        field = StatusLogField("Test Field", 1)
+        assert field.is_numeric is False
+        assert field.unit == ""
+
+    def test_unit_is_parsed_from_the_label(self):
+        """Test only a trailing parenthetical counts as a unit.
+
+        The file stores no unit of its own, so the unit text is read out of the
+        label - and nothing may be invented where the label says nothing.
+        """
+        parse = StatusLogField._unit_from_label
+
+        assert parse("Spray Voltage (V)") == "V"
+        assert parse("Capillary Temperature (°C)") == "°C"
+        assert parse("Spray Current (µA)") == "µA"
+        assert parse("Ion (m/z) (V)") == "V"
+        assert parse("Sheath gas flow rate") == ""
+        assert parse("Status:") == ""
+        assert parse("Voltage (V) setting") == ""
+        assert parse("Fore Vacuum Sensor (mbar") == ""
+        assert parse("Voltage ()") == ""
+
+    def test_label_is_never_modified(self):
+        """Test parsing a unit leaves the label verbatim, non-ASCII included."""
+        label = "Capillary Temperature (°C)"
+        field = StatusLogField(label=label, data_type=1, is_numeric=True, unit="°C")
+
+        assert field.label == label
+        assert field.unit == "°C"
+
 
 # =============================================================================
 # Tests for New Data Models

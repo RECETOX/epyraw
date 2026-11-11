@@ -44,6 +44,7 @@ from .models import (
     FileHeader,
     InclusionListItem,
     InstrumentData,
+    InstrumentStatusLog,
     MassOptions,
     Reaction,
     RunHeader,
@@ -55,6 +56,7 @@ from .models import (
     ScanHeader,
     ScanStats,
     Spectrum,
+    StatusLogEntry,
     StatusLogField,
 )
 from .raw_file import RawFile, set_runtime
@@ -93,6 +95,8 @@ __all__ = [
     "ScanFilter",
     "Spectrum",
     "StatusLogField",
+    "StatusLogEntry",
+    "InstrumentStatusLog",
     "ScanHeader",
     "ScanEvent",
     "Reaction",

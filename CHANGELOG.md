@@ -19,6 +19,15 @@ release is what gets published, so the two must agree.
 
 ## [Unreleased]
 
+- The instrument status log can be read, not just described: `status_log_fields`, `status_log_count`,
+  `status_log_streams()`, `get_status_log(start_time, end_time)`, `get_status_log_entry(index)`,
+  `get_status_log_at_time(retention_time)` and `get_status_log_channel(label)` give the
+  acquisition-time instrument state — temperatures, spray voltage, gas flows, vacuum — with the
+  precision the file stores, taken from whichever instrument stream carries it (the caller's own
+  selection is restored afterwards). Channels are addressed by their verbatim label, never by
+  position, and `StatusLogField.unit` is parsed from the label text rather than read from the file,
+  so a channel whose label states no unit reports `''`.
+  ([#5](https://github.com/RECETOX/epyraw/issues/5))
 - Type-checked `src/epyraw` under strict mypy, which exposed and fixed a latent bug:
   `Chromatogram.total_ion_current` raised `AttributeError` on numpy ≥ 2 because `np.trapz` was removed,
   so it now integrates directly and is covered by tests.
