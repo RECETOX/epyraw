@@ -10,7 +10,7 @@ This package provides a Pythonic interface to the official [Thermo RawFileReader
 - Extract spectra (centroid and profile data)
 - Extract chromatograms (TIC, Base Peak, EIC/XIC)
 - Access file metadata (sample info, instrument details, run headers)
-- Get scan filters and trailer extra data
+- Get scan filters and trailer extra data (display strings, or typed values at stored precision)
 - Average scans across a range
 
 ## Installation
@@ -140,6 +140,7 @@ Opens a RAW file for reading. Uses context manager pattern for automatic resourc
 | `file_header` | FileHeader | File header information |
 | `run_header` | RunHeader | Run header information |
 | `sample_information` | SampleInformation | Sample metadata |
+| `trailer_extra_fields` | list[HeaderField] | Trailer extra field definitions |
 
 #### Methods
 
@@ -154,7 +155,8 @@ Opens a RAW file for reading. Uses context manager pattern for automatic resourc
 | `get_spectrum(scan, centroid=True)` | Get spectrum data |
 | `get_chromatogram(trace_type, start, end)` | Get chromatogram data |
 | `average_scans(range, tolerance, units)` | Average spectra in a range |
-| `get_trailer_extra_information(scan)` | Get trailer extra fields |
+| `get_trailer_extra_information(scan)` | Get trailer extra fields (display strings, unchanged) |
+| `get_trailer_extra_values(scan)` | Get typed trailer extra values for a scan |
 | `get_status_log_header_information()` | Get status log field definitions |
 | `get_inclusion_exclusion_list()` | Get inclusion/exclusion list |
 | `close()` | Close the file |

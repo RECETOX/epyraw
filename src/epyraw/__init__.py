@@ -42,6 +42,7 @@ from .models import (
     AutoSamplerInformation,
     Chromatogram,
     FileHeader,
+    HeaderField,
     InclusionListItem,
     InstrumentData,
     MassOptions,
@@ -86,6 +87,7 @@ __all__ = [
     # Data models
     "Chromatogram",
     "FileHeader",
+    "HeaderField",
     "InclusionListItem",
     "InstrumentData",
     "RunHeader",
