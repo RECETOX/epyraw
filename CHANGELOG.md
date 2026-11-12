@@ -25,7 +25,7 @@ release is what gets published, so the two must agree.
   typed by the file's own data types (a `bool` for `AGC:`, `'28.00'` as text for the string field
   `HCD Energy:`, zeros preserved), keyed by the file's verbatim labels;
   `get_trailer_extra_information()` is unchanged.
-  ([#9](https://github.com/RECETOX/epyraw/issues/9))
+  ([#18](https://github.com/RECETOX/epyraw/pull/18))
 - Type-checked `src/epyraw` under strict mypy, which exposed and fixed a latent bug:
   `Chromatogram.total_ion_current` raised `AttributeError` on numpy ≥ 2 because `np.trapz` was removed,
   so it now integrates directly and is covered by tests.
