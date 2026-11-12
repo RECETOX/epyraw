@@ -6,6 +6,7 @@ from epyraw.models import (
     AutoSamplerInformation,
     Chromatogram,
     FileHeader,
+    HeaderField,
     InclusionListItem,
     InstrumentData,
     MassOptions,
@@ -241,6 +242,44 @@ class TestStatusLogField:
         """Test status log field creation."""
         field = StatusLogField(label="Test Field", data_type=1)
         assert "Test Field" in repr(field)
+
+
+class TestHeaderField:
+    """Tests for HeaderField class."""
+
+    def test_header_field_defaults(self):
+        """Test default values for HeaderField."""
+        field = HeaderField()
+        assert field.label == ""
+        assert field.data_type == 0
+        assert field.is_numeric is False
+        assert field.unit == ""
+        assert repr(field) == "HeaderField()"
+
+    def test_header_field_with_data(self):
+        """Test HeaderField with actual values."""
+        field = HeaderField(
+            label="Ion Injection Time (ms):",
+            data_type=11,
+            is_numeric=True,
+            unit="ms",
+        )
+        assert field.label == "Ion Injection Time (ms):"
+        assert field.data_type == 11
+        assert field.is_numeric is True
+        assert field.unit == "ms"
+
+    def test_header_field_repr(self):
+        """Test HeaderField string representation."""
+        field = HeaderField(label="AGC:", data_type=4)
+        assert repr(field) == "HeaderField(AGC:)"
+
+    def test_header_field_equality(self):
+        """Test HeaderField dataclass equality."""
+        a = HeaderField(label="Rod:", data_type=8, is_numeric=True)
+        b = HeaderField(label="Rod:", data_type=8, is_numeric=True)
+        assert a == b
+        assert a != HeaderField(label="Rod:", data_type=8)
 
 
 # =============================================================================

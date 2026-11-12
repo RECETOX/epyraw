@@ -27,6 +27,7 @@ from .models import (
     AutoSamplerInformation,
     Chromatogram,
     FileHeader,
+    HeaderField,
     InclusionListItem,
     InstrumentData,
     MassOptions,
@@ -274,6 +275,94 @@ def _initialize_dotnet(runtime: str | None = None) -> None:
     _dotnet_initialized = True
 
 
+def _unit_from_label(label: str) -> str:
+    """Parse a unit from a field label.
+
+    Strips at most one trailing ':' and takes a parenthetical at the
+    very end of what remains, because trailer-extra labels put the
+    colon after the parenthetical ('Ion Injection Time (ms):' -> 'ms').
+
+    Args:
+        label: Field label, verbatim from the file.
+
+    Returns:
+        The unit text, or '' when the label carries no parenthetical
+        at the end, when its content is empty, or when it contains a
+        nested ')' - so section-header rows such as
+        '=== Mass Calibration: ===:' yield ''.
+    """
+    text = label[:-1] if label.endswith(":") else label
+    if not text.endswith(")"):
+        return ""
+    start = text.rfind("(")
+    if start == -1:
+        return ""
+    unit = text[start + 1 : -1]
+    if not unit or ")" in unit:
+        return ""
+    return unit
+
+
+def _header_item_value(field: HeaderField, raw: Any) -> float | bool | str | None:
+    """Coerce one raw .NET value against its HeaderItem field definition.
+
+    Coercion is strictly per-field: the file's own description decides
+    the Python type, never the value's text.
+
+    Never test the raw value for truthiness: a real 0, 0.0 or False is
+    falsy and would be dropped, so only ``is None`` is checked.
+
+    Args:
+        field: The field definition describing ``raw``.
+        raw: One element of a .NET Object[] value array.
+
+    Returns:
+        ``None`` for NULL fields (section-header rows) and for a blank
+        or unparseable numeric (defensive: no blank numeric was observed
+        in any probed file); ``bool`` for ONOFF fields - checked before
+        any numeric branch because ``isinstance(True, int)`` is True;
+        ``float`` when the field is numeric (integers are widened,
+        numeric-looking text of non-numeric fields is never parsed);
+        ``str`` otherwise, verbatim and never stripped.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return bool(raw)
+    if field.is_numeric:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            # Blank or unparseable numeric; defensive only - never
+            # observed in real files probed for this release.
+            return None
+    return str(raw)
+
+
+def _header_item_fields(items: Any) -> list[HeaderField]:
+    """Convert a .NET HeaderItem[] array into HeaderField models.
+
+    Args:
+        items: .NET array of HeaderItem (trailer extra or tune data header).
+
+    Returns:
+        One HeaderField per item, in file order, including
+        section-header rows.
+    """
+    fields: list[HeaderField] = []
+    for item in items:
+        label = str(item.Label) if item.Label else ""
+        fields.append(
+            HeaderField(
+                label=label,
+                data_type=int(item.DataType),
+                is_numeric=bool(item.IsNumeric),
+                unit=_unit_from_label(label),
+            )
+        )
+    return fields
+
+
 class RawFile:
     """Wrapper around Thermo RawFileReader's IRawDataPlus interface.
 
@@ -304,6 +393,9 @@ class RawFile:
         self._raw_file: Any = None
         self._selected_device: Device | None = None
         self._selected_instance: int = 0
+        # Parsed trailer-extra header, cached per (live .NET object,
+        # selection); see _trailer_extra_field_defs().
+        self._trailer_extra_cache: tuple[Any, int, int, list[HeaderField]] | None = None
 
         # Initialize .NET runtime
         _initialize_dotnet()
@@ -1302,6 +1394,188 @@ class RawFile:
 
         except Exception as e:
             raise RuntimeError(f"Failed to get trailer extra information: {e}") from e
+
+    def _trailer_extra_field_defs(self) -> list[HeaderField]:
+        """Trailer-extra field definitions, cached per file and selection.
+
+        Both public trailer-extra accessors need these definitions on
+        every call, and re-parsing them dominates their cost. Measured on
+        tests/testdata/sample.raw: converting one 62-item header across
+        the pythonnet boundary takes about 1.4 ms, which is 92% of a
+        :meth:`get_trailer_extra_values` call - 0.78 s of its 0.85 s over
+        the file's 574 scans, against 0.012 s for the .NET header read
+        itself. A 4117-scan file would pay about 6 s of that overhead.
+
+        The cache is sound because
+        ``GetTrailerExtraHeaderInformation()`` takes no scan argument:
+        the header describes the columns of the selected instrument
+        stream, not one scan, so it cannot vary by scan number.
+
+        What the cache is keyed on - the live .NET object plus the
+        selection - covers everything that can change the header:
+
+        * The selection is read from the live .NET object rather than
+          from the wrapper's ``_selected_device`` / ``_selected_instance``
+          bookkeeping, so the key reflects whatever the header was
+          actually read for - including a selection changed by a route
+          that does not go through ``select_instrument()``.
+        * ``close()`` sets ``_raw_file`` to None, and both public callers
+          check that before reaching this method, so a closed file can
+          never serve stale labels. There is no public reopen path -
+          ``__init__`` is the only other assignment to ``_raw_file`` - and
+          a ``RawFile`` for a new file is a new object with an empty
+          cache.
+
+        The cache stores the .NET object itself and compares it with
+        ``is`` rather than storing ``id()``: ``close()`` drops the only
+        reference, so the id could be recycled for an unrelated object
+        and a stale cache would then look valid.
+
+        Returns:
+            The cached list, shared with the cache - do not mutate the
+            list itself. The HeaderField objects in it are frozen, so
+            they cannot be edited into relabelling later reads.
+        """
+        raw = self._raw_file
+        selection = raw.SelectedInstrument
+        device = int(selection.DeviceType)
+        instance = int(selection.InstrumentIndex)
+        cache = self._trailer_extra_cache
+        if cache is not None and cache[0] is raw and cache[1] == device and cache[2] == instance:
+            return cache[3]
+
+        fields = _header_item_fields(raw.GetTrailerExtraHeaderInformation())
+        self._trailer_extra_cache = (raw, device, instance, fields)
+        return fields
+
+    @property
+    def trailer_extra_fields(self) -> list[HeaderField]:
+        """Trailer-extra field definitions, in file order.
+
+        One HeaderField per trailer-extra column, including the
+        section-header rows (data type 0/NULL, value None). The number
+        of columns is instrument-specific - 62 measured on a Q Exactive
+        HF-X, 68 on an Orbitrap Exploris, 58 on the Zenodo QC file - so
+        identify fields by ``label``, never by position. Identical
+        labels would collapse in the value dicts; none were observed.
+
+        ``data_type`` is the verbatim .NET data-type code (see
+        :attr:`HeaderField.data_type`), and ``unit`` is text parsed
+        from the label - the file format stores no machine-readable
+        unit (see :attr:`HeaderField.unit`).
+
+        Returns:
+            List of HeaderField objects, empty only if the file
+            defines no trailer extra. A fresh list on every access, so
+            appending to or clearing it does not affect later calls.
+
+        Raises:
+            InstrumentNotSelectedError: If no file is open or no
+                instrument is selected. Trailer extra belongs to a
+                mass-spectrometer instrument stream.
+
+        Example:
+            >>> with RawFile("data.raw") as rf:
+            ...     rf.select_instrument(Device.MS, 1)
+            ...     for f in rf.trailer_extra_fields:
+            ...         print(f.label, f.unit)
+        """
+        if self._raw_file is None:
+            raise InstrumentNotSelectedError("No file is open")
+        if int(self._raw_file.SelectedInstrument.InstrumentIndex) < 0:
+            raise InstrumentNotSelectedError(
+                "No instrument is selected - call select_instrument() first. "
+                "Trailer extra information belongs to a mass-spectrometer "
+                "instrument stream."
+            )
+
+        try:
+            # The header is file-level, so it is parsed once per
+            # selection, not once per access; copy the list so a caller
+            # cannot mutate the cache.
+            return list(self._trailer_extra_field_defs())
+        except Exception as e:
+            raise RuntimeError(f"Failed to get trailer extra fields: {e}") from e
+
+    def get_trailer_extra_values(self, scan_number: int) -> dict[str, float | str | bool | None]:
+        """Typed trailer-extra values for one scan.
+
+        Values come from the file's typed accessor, coerced strictly by
+        each field's own description (:meth:`trailer_extra_fields`) -
+        never against the field's text:
+
+        * numeric fields (``is_numeric``) are returned as ``float`` at
+          stored precision (injection time 54.999999701976776, not the
+          display text '55.000'); many are single precision upstream, so
+          compare with a tolerance - 'MS2 Isolation Width:' is
+          1.399999976158142, not 1.4. Integers are widened to ``float``,
+          and a blank or unparseable numeric coerces to ``None``
+          (defensive - never observed in real files).
+        * non-numeric fields keep their type: CHAR_STRING fields stay
+          ``str`` even when numeric-looking ('HCD Energy:' is '28.00'),
+          ONOFF fields become Python ``bool`` ('AGC:' is True here
+          while :meth:`get_trailer_extra_information` renders it 'On'),
+          NULL section rows are ``None``.
+
+        Real zeros are preserved (0, 0.0 and False survive; no truthiness
+        test is used). Text values are verbatim, never stripped. All
+        labels are keys, including section rows, so key order matches
+        ``trailer_extra_fields``.
+
+        The legacy :meth:`get_trailer_extra_information` is unchanged and
+        remains the way to get the display strings.
+
+        The field definitions are read once per file and instrument
+        selection and cached (see :meth:`_trailer_extra_field_defs`), so
+        calling this for every scan of a file costs no more than the
+        .NET value read plus the coercion.
+
+        Args:
+            scan_number: The scan number to get values for.
+
+        Returns:
+            Dictionary mapping each field label to its typed value.
+
+        Raises:
+            InvalidScanNumberError: If scan number is out of range.
+            InstrumentNotSelectedError: If no file is open or no
+                instrument is selected.
+
+        Example:
+            >>> with RawFile("data.raw") as rf:
+            ...     rf.select_instrument(Device.MS, 1)
+            ...     values = rf.get_trailer_extra_values(100)
+            ...     values["Ion Injection Time (ms):"]
+            54.999999701976776
+        """
+        if self._raw_file is None:
+            raise InstrumentNotSelectedError("No file is open")
+        if int(self._raw_file.SelectedInstrument.InstrumentIndex) < 0:
+            raise InstrumentNotSelectedError(
+                "No instrument is selected - call select_instrument() first. "
+                "Trailer extra information belongs to a mass-spectrometer "
+                "instrument stream."
+            )
+
+        run_header = self.run_header
+        if scan_number < run_header.first_spectrum or scan_number > run_header.last_spectrum:
+            raise InvalidScanNumberError(
+                f"Scan {scan_number} out of range ({run_header.first_spectrum}-"
+                f"{run_header.last_spectrum})"
+            )
+
+        try:
+            values = self._raw_file.GetTrailerExtraValues(int(scan_number))
+            # Shared cached list, used read-only here: mutating it or its
+            # elements would poison the cache for later scans.
+            fields = self._trailer_extra_field_defs()
+
+            result: dict[str, float | str | bool | None] = {}
+            for i in range(min(len(fields), len(values))):
+                result[fields[i].label] = _header_item_value(fields[i], values[i])
+            return result
+        except Exception as e:
+            raise RuntimeError(f"Failed to get trailer extra values: {e}") from e
 
     def get_status_log_header_information(self) -> list[StatusLogField]:
         """Get status log field definitions.

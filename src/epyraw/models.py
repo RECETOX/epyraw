@@ -413,6 +413,61 @@ class StatusLogField:
         return f"StatusLogField({self.label})"
 
 
+@dataclass(frozen=True)
+class HeaderField:
+    """Field definition for tables described by .NET HeaderItem rows.
+
+    One instance describes one column of such a table - trailer extra
+    today, tune data later. Identify fields by ``label``, never by
+    position: the number and order of columns is instrument-specific
+    (62 fields on a Q Exactive HF-X, 68 measured on an Orbitrap
+    Exploris, 58 on the Zenodo QC file).
+
+    Instances are immutable, and deliberately so: a parsed header is
+    cached and shared between calls, so a caller editing one would
+    silently relabel the values of every later read. Immutability also
+    makes instances hashable.
+    """
+
+    label: str = ""
+    """Field label/name, verbatim from the file."""
+
+    data_type: int = 0
+    """Raw data-type code stored in the file.
+
+    Note:
+        This is the verbatim integer code of the .NET GenericDataTypes
+        enum (observed on real files: 0=NULL, 4=ONOFF, 8=LONG,
+        11=DOUBLE, 12=CHAR_STRING). It is not a value of
+        epyraw.enums.GenericDataTypes, whose members do not match the
+        .NET enum.
+    """
+
+    is_numeric: bool = False
+    """Whether the file describes this field as numeric.
+
+    Numeric fields are returned as ``float`` by the value accessors;
+    all others keep the type the file gives them (``str``, ``bool`` or
+    ``None``).
+    """
+
+    unit: str = ""
+    """Unit parsed from the label text, empty string if none.
+
+    Note:
+        The raw file format stores no machine-readable unit. This is
+        text parsed from the label: at most one trailing ':' is
+        stripped, then a parenthetical at the very end of the rest is
+        taken ('Ion Injection Time (ms):' -> 'ms'). Anything else,
+        including section-header rows such as
+        '=== Mass Calibration: ===:', yields ''.
+    """
+
+    def __repr__(self) -> str:
+        """Return a string representation."""
+        return f"HeaderField({self.label})"
+
+
 @dataclass
 class ScanHeader:
     """Detailed scan header information.
