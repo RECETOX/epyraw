@@ -18,3 +18,4 @@
             - InstrumentData
             - ScanFilter
             - StatusLogField
+            - HeaderField
